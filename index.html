@@ -244,8 +244,18 @@ $('fileInput').addEventListener('change', function (e) {
   var reader = new FileReader();
   reader.onload = function (ev) {
     try {
-      var data = new Uint8Array(ev.target.result);
-      var wb = XLSX.read(data, { type: 'array' });
+      var buf = new Uint8Array(ev.target.result);
+      var wb;
+      if (/\.(csv|txt|tsv)$/i.test(f.name)) {
+        /* CSV 先按 UTF-8 解码；若出现替换字符说明是 GBK 编码，改用 GBK 解码重试 */
+        var txt = new TextDecoder('utf-8').decode(buf);
+        if (txt.indexOf('\uFFFD') !== -1) {
+          try { txt = new TextDecoder('gbk').decode(buf); } catch (ignoreErr) {}
+        }
+        wb = XLSX.read(txt, { type: 'string' });
+      } else {
+        wb = XLSX.read(buf, { type: 'array' });
+      }
       var sheet = wb.Sheets[wb.SheetNames[0]];
       if (!sheet) { setTip('未读取到工作表，请检查文件', true); return; }
       var json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
