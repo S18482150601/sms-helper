@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="theme-color" content="#2563eb">
+<title>表格短信助手-无间隔极速自动版</title>
+<!-- 表格解析库：主 CDN，失败自动回退备用 CDN -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+        onerror="this.onerror=null;document.write('<script src=&quot;https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js&quot;><\/script>');"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{padding:15px;background:#f5f7fa;color:#222;line-height:1.5}
+.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:15px;box-shadow:0 1px 4px #00000012}
+h3{margin-bottom:10px;color:#222;font-size:17px}
+input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin:8px 0;font-size:16px;background:#fff;color:#222}
+textarea{resize:vertical;line-height:1.5}
+button{padding:12px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:16px;margin:5px 0;width:100%;cursor:pointer;transition:opacity .15s}
+button:active{opacity:.82}
+button.gray{background:#888}
+button.green{background:#16a34a}
+button.red{background:#dc2626}
+button:disabled{background:#c7cbd1;cursor:not-allowed}
+#tableBox{max-height:260px;overflow:auto;border:1px solid #eee;margin:10px 0;border-radius:8px;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}
+td,th{border:1px solid #eee;padding:6px;text-align:center}
+thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
+.desc{color:#666;font-size:14px;margin:8px 0;line-height:1.5}
+.check-cell{width:40px}
+.danger{background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;margin:10px 0;font-weight:bold;font-size:14px;line-height:1.6}
+.mini-danger{color:#dc2626;font-size:13px;margin:4px 0 8px}
+.btn-row{display:flex;gap:8px}
+.btn-row button{margin:5px 0}
+.progress-line{font-size:15px;margin:6px 0}
+#currentPhoneInfo{margin:6px 0;font-size:15px;color:#111;word-break:break-all;min-height:22px}
+.tip{font-size:13px;color:#16a34a;margin:6px 0;word-break:break-all}
+.tip.err{color:#dc2626}
+.badge{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px}
+.inapp-tip{display:none;background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;padding:12px;margin-bottom:15px;font-size:14px;font-weight:bold;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div id="inappTip" class="inapp-tip"></div>
+
+<div class="card">
+  <h3>1. 上传Excel表格</h3>
+  <p class="desc">表格第一行为表头，<b>必须包含【手机号】列</b>，支持姓名等自定义字段。支持 .xlsx / .xls / .csv。</p>
+  <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
+  <div id="fileTip" class="tip"></div>
+  <div class="btn-row">
+    <button id="selectAll" class="gray" type="button">全选</button>
+    <button id="unSelectAll" class="gray" type="button">取消全选</button>
+  </div>
+  <div id="tableBox"></div>
+</div>
+
+<div class="card">
+  <h3>2. 短信模板</h3>
+  <p class="desc">示例：尊敬的{姓名}，您好！通知内容……（用 {列名} 读取表格对应列的内容）</p>
+  <textarea id="template" rows="4" placeholder="输入短信模板，使用{列名}读取表格内容">尊敬的{姓名}，您好！</textarea>
+</div>
+
+<div class="card">
+  <h3>3. 发送控制</h3>
+  <div class="danger">⚠️【无间隔极速模式】拉起短信页面立刻标记记录，无等待、无延时！只要打开短信编辑页，无论是否发送，直接计入发送日志！适合批量唤起短信，事后人工核对。网页无法感知短信是否真实发送状态，也不能自动点击“发送”。</div>
+  <div class="progress-line">当前进度：<span id="progress">0/0</span><span class="badge" id="runBadge" style="display:none">运行中</span></div>
+  <div id="currentPhoneInfo"></div>
+  <button id="startBtn" class="green" type="button">开始无间隔批量唤起</button>
+  <button id="iosOpenBtn" class="green" type="button" style="display:none">点击唤起短信</button>
+  <button id="stopBtn" class="gray" type="button">停止任务</button>
+  <button id="exportLogBtn" class="red" type="button">导出发送记录</button>
+  <p class="mini-danger" id="miniTip">提示：点击“开始”后会连续跳转到系统短信编辑页，请保持浏览器后台运行，返回浏览器时会自动跳入下一条号码。</p>
+  <p class="mini-danger" id="iosHint" style="display:none">苹果手机提示：iOS 出于安全限制，只有「用户点击」才允许唤起短信应用，网页无法自动连续跳转。因此苹果手机上请每条点击一次上方绿色按钮；点击后返回浏览器会自动显示下一条号码，无需等待。</p>
+</div>
+
+<script>
+/* =========================================================================
+ * 表格短信助手 · 无间隔极速自动版（单文件 / 移动端）
+ * 说明：所有逻辑写在全局作用域，便于页面重载后恢复任务与人工调试。
+ * ========================================================================= */
+
+/* ---------------- 全局状态 ---------------- */
+var header = [];        // 表头（已 trim）
+var tableData = [];     // 正文数据行（二维数组）
+var phoneIdx = -1;      // 【手机号】列下标
+var queue = [];         // 待发送队列：[{rowIdx}]
+var currentIndex = 0;   // 当前处理到第几条
+var sendLog = [];       // 发送记录：{手机号, 短信内容, 唤起时间}
+var isRun = false;      // 任务是否运行中
+var awaitingReturn = false; // 已跳转短信页，等待返回浏览器后继续下一条
+var stepId = 0;         // 步进令牌，防止重复推进
+var lastNavAt = 0;      // 上次跳转时间，防止重载时重复触发
+var resumeTimer = null; // 续跑调度定时器
+
+/* ---------------- 平台识别 ----------------
+ * iOS 与 Android 的 sms: 协议格式不同：
+ *   Android / 通用(RFC 5724)：sms:号码?body=内容   —— 用 "?" 分隔
+ *   iOS(Messages)：            sms:号码&body=内容   —— 用 "&" 分隔
+ * 用错分隔符时，iOS Safari 会直接弹“无法打开页面”并中断任务。
+ * 另外 iOS 只允许由「用户点击」触发唤起短信（自定义 scheme），
+ * 定时器 / visibilitychange 触发的跳转会被静默拦截或报错，
+ * 因此苹果手机采用「点击逐条」模式。 */
+var UA = navigator.userAgent || '';
+var isIOS = /iPad|iPhone|iPod/.test(UA) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+var mode = isIOS ? 'ios' : 'auto';
+var iosPending = null;  // iOS：已点击唤起、等待确认（确认后计入日志并前进）
+var isInApp = /MicroMessenger|MQQBrowser|QQBrowser|\bQQ\/|DingTalk|AlipayClient|Weibo|BaiduApp|UCBrowser|Quark/i.test(UA);
+
+var STORE_KEY = 'sms_helper_state_v1';
+var FOLLOW_UP_MS = 800;   // 跳转后最小防抖间隔（毫秒）
+var NAV_FALLBACK_MS = 1200; // 短信应用未拉起的兜底续跑时间
+
+function $(id) { return document.getElementById(id); }
+
+/* ---------------- 工具函数 ---------------- */
+function pad2(n) { return String(n).padStart(2, '0'); }
+
+function nowStr() {
+  var d = new Date();
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()) +
+    ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+}
+
+function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/* 模板变量替换：{姓名} -> 对应列的值 */
+function getMsg(row) {
+  var tpl = $('template').value;
+  header.forEach(function (key, i) {
+    if (key === '') return;
+    var reg = new RegExp('\\{' + escapeReg(key) + '\\}', 'g');
+    tpl = tpl.replace(reg, function () {
+      var v = row[i];
+      return (v === undefined || v === null) ? '' : String(v);
+    });
+  });
+  return tpl;
+}
+
+function setTip(text, isErr) {
+  var el = $('fileTip');
+  el.textContent = text;
+  el.className = isErr ? 'tip err' : 'tip';
+}
+
+/* ---------------- 短信 URI 与唤起（区分 iOS / 其他） ---------------- */
+function buildSmsUrl(phone, msg) {
+  var body = encodeURIComponent(msg);
+  return isIOS ? ('sms:' + phone + '&body=' + body) : ('sms:' + phone + '?body=' + body);
+}
+
+function openSms(url) {
+  /* iOS 用 <a> 点击更稳定，且可避免 Safari 直接报“无法打开页面” */
+  if (isIOS) {
+    try {
+      var a = document.createElement('a');
+      a.href = url;
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 2000);
+      return;
+    } catch (e) { /* 回退到 location.href */ }
+  }
+  window.location.href = url;
+}
+
+/* 取出队列里当前待处理的号码与内容 */
+function currentItem() {
+  var item = queue[currentIndex];
+  var row = (item ? tableData[item.rowIdx] : null) || [];
+  var raw = row[phoneIdx];
+  return {
+    phone: String(raw === undefined || raw === null ? '' : raw).trim(),
+    msg: getMsg(row)
+  };
+}
+
+function pushLog(phone, msg) {
+  sendLog.push({ '手机号': phone, '短信内容': msg, '唤起时间': nowStr() });
+}
+
+/* ---------------- 状态持久化（保证跳转/重载后能续跑） ---------------- */
+function saveState() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      header: header, tableData: tableData, queue: queue,
+      currentIndex: currentIndex, sendLog: sendLog,
+      isRun: isRun, awaitingReturn: awaitingReturn, iosPending: iosPending,
+      template: $('template').value
+    }));
+  } catch (e) { /* 隐私模式下可能不可用，忽略 */ }
+}
+
+/* ---------------- 表格渲染 ---------------- */
+function renderTable() {
+  var box = $('tableBox');
+  if (!header.length) { box.innerHTML = ''; return; }
+  var html = "<table><thead><tr><th class='check-cell'><input type='checkbox' id='mainCheck'></th>";
+  header.forEach(function (h) { html += '<th>' + h + '</th>'; });
+  html += '</tr></thead><tbody>';
+  tableData.forEach(function (row, idx) {
+    html += "<tr><td class='check-cell'><input type='checkbox' class='rowCheck' data-idx='" + idx + "'></td>";
+    header.forEach(function (h, i) {
+      var v = row[i];
+      html += '<td>' + ((v === undefined || v === null) ? '' : v) + '</td>';
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  var mainCheck = $('mainCheck');
+  if (mainCheck) mainCheck.checked = false;
+}
+
+/* 依据当前队列回填勾选状态（用于恢复任务） */
+function markQueueChecks() {
+  var map = {};
+  queue.forEach(function (q) { map[q.rowIdx] = true; });
+  document.querySelectorAll('.rowCheck').forEach(function (cb) {
+    cb.checked = !!map[cb.dataset.idx];
+  });
+}
+
+function updateProgress() {
+  var checkedCount = document.querySelectorAll('.rowCheck:checked').length;
+  var total = isRun ? queue.length : checkedCount;
+  var done = isRun ? Math.min(currentIndex, total) : 0;
+  $('progress').textContent = done + '/' + total;
+  $('runBadge').style.display = isRun ? 'inline-block' : 'none';
+}
+
+/* ---------------- 读取上传文件 ---------------- */
+$('fileInput').addEventListener('change', function (e) {
+  var f = e.target.files && e.target.files[0];
+  if (!f) return;
+  if (typeof XLSX === 'undefined') {
+    setTip('表格组件未加载成功，请联网后刷新页面再试', true);
+    return;
+  }
+  var reader = new FileReader();
+  reader.onload = function (ev) {
+    try {
+      var data = new Uint8Array(ev.target.result);
+      var wb = XLSX.read(data, { type: 'array' });
+      var sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) { setTip('未读取到工作表，请检查文件', true); return; }
+      var json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+      if (!json.length || json.length < 2) { setTip('表格数据太少，至少需要一行表头 + 一行数据', true); return; }
+
+      header = (json[0] || []).map(function (h) {
+        return (h === undefined || h === null) ? '' : String(h).trim();
+      });
+      phoneIdx = header.indexOf('手机号');
+      if (phoneIdx === -1) {
+        header = []; tableData = [];
+        renderTable(); updateProgress();
+        setTip('表头缺少【手机号】列，请检查第一行表头', true);
+        return;
+      }
+
+      tableData = json.slice(1).filter(function (row) {
+        if (!row || row.length === 0) return false;
+        var p = row[phoneIdx];
+        return p !== undefined && p !== null && String(p).trim() !== '';
+      });
+
+      if (!tableData.length) {
+        renderTable(); updateProgress();
+        setTip('表格里没有可用的手机号数据', true);
+        return;
+      }
+
+      /* 新文件 = 新任务，重置队列与进度（保留历史发送记录便于对账） */
+      queue = []; currentIndex = 0; isRun = false; awaitingReturn = false; iosPending = null;
+      stopResumeTimer();
+      $('iosOpenBtn').disabled = true;
+      renderTable();
+      updateProgress();
+      saveState();
+      setTip('读取成功，共 ' + tableData.length + ' 条联系人（请勾选待发送号码）');
+    } catch (err) {
+      setTip('文件解析失败：' + (err && err.message ? err.message : err), true);
+    }
+  };
+  reader.onerror = function () { setTip('文件读取失败，请重试', true); };
+  reader.readAsArrayBuffer(f);
+});
+
+/* ---------------- 勾选交互（含表头全选） ---------------- */
+$('selectAll').addEventListener('click', function () {
+  document.querySelectorAll('.rowCheck').forEach(function (cb) { cb.checked = true; });
+  var mc = $('mainCheck'); if (mc) mc.checked = true;
+  updateProgress();
+});
+$('unSelectAll').addEventListener('click', function () {
+  document.querySelectorAll('.rowCheck').forEach(function (cb) { cb.checked = false; });
+  var mc = $('mainCheck'); if (mc) mc.checked = false;
+  updateProgress();
+});
+$('tableBox').addEventListener('change', function (e) {
+  var t = e.target;
+  if (t.id === 'mainCheck') {
+    document.querySelectorAll('.rowCheck').forEach(function (cb) { cb.checked = t.checked; });
+    updateProgress();
+  } else if (t.classList && t.classList.contains('rowCheck')) {
+    updateProgress();
+  }
+});
+
+/* ---------------- 核心：逐条唤起（Android / 通用浏览器） ---------------- */
+function processNext() {
+  if (!isRun) return;
+  if (currentIndex >= queue.length) { finishTask(); return; }
+
+  var it = currentItem();
+  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+
+  /* 唤起即记录：无论用户是否真的点击发送 */
+  pushLog(it.phone, it.msg);
+
+  stepId++;
+  var myStep = stepId;
+  currentIndex++;
+  updateProgress();
+
+  awaitingReturn = true;
+  saveState();
+
+  lastNavAt = Date.now();
+  openSms(buildSmsUrl(it.phone, it.msg));
+
+  /* 兜底：若短信应用未拉起到前台（页面仍可见），继续下一条，避免任务卡死 */
+  setTimeout(function () {
+    if (stepId !== myStep) return;                 // 已被后续步骤推进，忽略
+    if (isRun && awaitingReturn && !document.hidden) {
+      awaitingReturn = false;
+      saveState();
+      processNext();
+    }
+  }, NAV_FALLBACK_MS);
+}
+
+/* ---------------- iOS 模式：点击逐条唤起 ----------------
+ * iOS 只允许「用户点击」唤起短信，自动跳转会被拦截或报“无法打开页面”，
+ * 所以改为：显示当前号码 → 用户点击 → 确认短信页打开后记录并前进。 */
+function iosPrepare() {
+  if (!isRun) return;
+  if (currentIndex >= queue.length) { finishTask(); return; }
+  var it = currentItem();
+  var btn = $('iosOpenBtn');
+  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+  btn.textContent = '点击唤起短信（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+  btn.disabled = false;
+  updateProgress();
+  saveState();
+}
+
+/* 用户点击后唤起短信；只有确认短信页真的打开，才计入日志并前进 */
+function iosOpenCurrent() {
+  if (!isRun) { alert('请先点击“开始无间隔批量唤起”'); return; }
+  if (currentIndex >= queue.length) { finishTask(); return; }
+
+  var it = currentItem();
+  iosPending = it;
+  var btn = $('iosOpenBtn');
+  btn.disabled = true;
+  $('currentPhoneInfo').textContent = '正在唤起：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+  saveState();                       // 记录待确认项，重载后也能接上
+
+  lastNavAt = Date.now();
+  openSms(buildSmsUrl(it.phone, it.msg));
+
+  /* 若一直停留本页（说明被拦截 / 无短信应用），恢复按钮并提示重试 */
+  setTimeout(function () {
+    if (!iosPending || document.hidden) return;   // 已确认，或已切到短信应用
+    iosPending = null;
+    btn.disabled = false;
+    $('currentPhoneInfo').textContent = '未检测到短信页打开，请再点一次绿色按钮（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+    saveState();
+  }, 5000);
+}
+
+/* 确认唤起成功：写入日志 → 前进一步 → 显示下一条 */
+function confirmIOSPending() {
+  if (!iosPending) return;
+  pushLog(iosPending.phone, iosPending.msg);
+  iosPending = null;
+  currentIndex++;
+  updateProgress();
+  $('iosOpenBtn').disabled = false;
+  saveState();
+  if (isRun) iosPrepare();
+}
+
+function finishTask() {
+  isRun = false;
+  awaitingReturn = false;
+  iosPending = null;
+  stopResumeTimer();
+  $('currentPhoneInfo').textContent = '全部任务执行完毕';
+  $('iosOpenBtn').disabled = true;
+  updateProgress();
+  saveState();
+  alert('全部任务执行完毕！可点击“导出发送记录”导出日志。');
+}
+
+/* 返回浏览器后 / 页面重载后自动续跑下一条（0 等待） */
+function stopResumeTimer() {
+  if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
+}
+
+function scheduleResume() {
+  if (!isRun || !awaitingReturn) return;
+  if (resumeTimer) return;
+  var elapsed = Date.now() - lastNavAt;
+  var wait = Math.max(0, FOLLOW_UP_MS - elapsed);
+  resumeTimer = setTimeout(function () {
+    resumeTimer = null;
+    if (isRun && awaitingReturn) {
+      awaitingReturn = false;
+      saveState();
+      processNext();
+    }
+  }, wait);
+}
+
+function handleVisible() {
+  if (document.visibilityState !== 'visible') return;
+  if (mode === 'ios') {
+    /* iOS：返回浏览器即确认上一条已唤起，立刻切到下一条（0 等待） */
+    if (isRun && iosPending) confirmIOSPending();
+    return;
+  }
+  scheduleResume();
+}
+document.addEventListener('visibilitychange', handleVisible);
+window.addEventListener('pageshow', handleVisible);
+window.addEventListener('focus', handleVisible);
+
+/* ---------------- 按钮 ---------------- */
+$('startBtn').addEventListener('click', function () {
+  if (!header.length || phoneIdx === -1) { alert('请先上传包含【手机号】列的表格'); return; }
+  var checked = Array.prototype.slice.call(document.querySelectorAll('.rowCheck:checked'));
+  if (!checked.length) { alert('请勾选至少1个联系人'); return; }
+
+  queue = checked.map(function (cb) { return { rowIdx: Number(cb.dataset.idx) }; });
+  currentIndex = 0;
+  isRun = true;
+  awaitingReturn = false;
+  iosPending = null;
+  stepId = 0;
+  lastNavAt = 0;
+  stopResumeTimer();
+  updateProgress();
+  saveState();
+
+  if (mode === 'ios') {
+    /* 苹果手机：改为点击逐条唤起 */
+    $('iosOpenBtn').style.display = 'block';
+    $('iosOpenBtn').disabled = false;
+    iosPrepare();
+  } else {
+    processNext();
+  }
+});
+
+$('iosOpenBtn').addEventListener('click', iosOpenCurrent);
+
+$('stopBtn').addEventListener('click', function () {
+  if (!isRun && !awaitingReturn && !iosPending) { alert('当前没有正在执行的任务'); return; }
+  isRun = false;
+  awaitingReturn = false;
+  iosPending = null;
+  stopResumeTimer();
+  $('iosOpenBtn').disabled = true;
+  $('currentPhoneInfo').textContent = '任务已停止（已唤起 ' + currentIndex + ' 条）';
+  updateProgress();
+  saveState();
+});
+
+$('exportLogBtn').addEventListener('click', function () {
+  if (!sendLog.length) { alert('暂无发送记录'); return; }
+  if (typeof XLSX === 'undefined') { alert('表格组件未加载成功，请联网后刷新页面再导出'); return; }
+  var ws = XLSX.utils.json_to_sheet(sendLog, { header: ['手机号', '短信内容', '唤起时间'] });
+  ws['!cols'] = [{ wch: 16 }, { wch: 48 }, { wch: 20 }];
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '发送记录');
+  var stamp = nowStr().replace(/[-: ]/g, '');
+  XLSX.writeFile(wb, '短信发送记录_' + stamp + '.xlsx');
+});
+
+/* ---------------- 恢复上次任务（跳转短信应用导致页面重载时使用） ---------------- */
+function restoreState() {
+  var st = null;
+  try {
+    var raw = localStorage.getItem(STORE_KEY);
+    if (raw) st = JSON.parse(raw);
+  } catch (e) { st = null; }
+  if (!st || !st.header || !st.header.length) return;
+
+  header = st.header;
+  tableData = st.tableData || [];
+  queue = st.queue || [];
+  currentIndex = st.currentIndex || 0;
+  sendLog = st.sendLog || [];
+  isRun = !!st.isRun;
+  awaitingReturn = !!st.awaitingReturn;
+  iosPending = st.iosPending || null;
+  phoneIdx = header.indexOf('手机号');
+  if (typeof st.template === 'string') $('template').value = st.template;
+
+  renderTable();
+  markQueueChecks();
+  updateProgress();
+  setTip('已恢复上次任务：' + tableData.length + ' 条联系人，已完成 ' + currentIndex + '/' + queue.length);
+
+  if (!isRun) return;
+
+  if (!queue.length) { isRun = false; saveState(); return; }
+
+  if (mode === 'ios') {
+    $('iosOpenBtn').style.display = 'block';
+    $('iosOpenBtn').disabled = false;
+    if (iosPending) {
+      /* 页面在跳转途中被重载，说明短信页已唤起过，补记日志并前进 */
+      confirmIOSPending();
+    } else {
+      iosPrepare();
+    }
+  } else {
+    lastNavAt = 0;
+    scheduleResume();      // 立刻续跑下一条
+  }
+}
+
+/* ---------------- 初始化 ---------------- */
+if (mode === 'ios') {
+  $('iosHint').style.display = 'block';
+  $('miniTip').style.display = 'none';
+  $('startBtn').textContent = '开始批量任务（苹果逐条模式）';
+}
+if (isInApp) {
+  var tip = $('inappTip');
+  tip.style.display = 'block';
+  tip.innerHTML = '⚠️ 当前是微信/QQ 等内置浏览器，<u>无法唤起短信应用</u>（sms: 协议被屏蔽）。请点击右上角「…」选择「在 Safari / 浏览器中打开」后再使用。';
+}
+restoreState();
+if (typeof XLSX === 'undefined') {
+  setTip('注意：表格组件未加载成功，上传/导出将不可用，请联网后刷新页面', true);
+}
+</script>
+</body>
+</html>
