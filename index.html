@@ -34,6 +34,8 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 .btn-row button{margin:5px 0}
 .progress-line{font-size:15px;margin:6px 0}
 #currentPhoneInfo{margin:6px 0;font-size:15px;color:#111;word-break:break-all;min-height:22px}
+.opt-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px;color:#333;cursor:pointer;user-select:none}
+.opt-row input{width:auto;margin:0;accent-color:#2563eb}
 .tip{font-size:13px;color:#16a34a;margin:6px 0;word-break:break-all}
 .tip.err{color:#dc2626}
 .badge{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px}
@@ -66,6 +68,10 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
   <h3>3. 发送控制</h3>
   <div class="danger">⚠️【无间隔极速模式】拉起短信页面立刻标记记录，无等待、无延时！只要打开短信编辑页，无论是否发送，直接计入发送日志！适合批量唤起短信，事后人工核对。网页无法感知短信是否真实发送状态，也不能自动点击“发送”。</div>
   <div class="progress-line">当前进度：<span id="progress">0/0</span><span class="badge" id="runBadge" style="display:none">运行中</span></div>
+  <label class="opt-row" id="autoReturnRow">
+    <input type="checkbox" id="autoReturnChk" checked>
+    <span>发完短信自动回到浏览器（关闭短信后自动跳回本页面）</span>
+  </label>
   <div id="currentPhoneInfo"></div>
   <button id="startBtn" class="green" type="button">开始无间隔批量唤起</button>
   <button id="iosOpenBtn" class="green" type="button" style="display:none">点击唤起短信</button>
@@ -112,6 +118,8 @@ var isInApp = /MicroMessenger|MQQBrowser|QQBrowser|\bQQ\/|DingTalk|AlipayClient|
 var STORE_KEY = 'sms_helper_state_v1';
 var FOLLOW_UP_MS = 800;   // 跳转后最小防抖间隔（毫秒）
 var NAV_FALLBACK_MS = 1200; // 短信应用未拉起的兜底续跑时间
+var AUTO_RETURN = true;   // 发完短信自动回到浏览器页面（隐藏 iframe 唤起 + focus 拉回）
+var smsOpened = false;    // 本次唤起是否已确认短信 App 被拉起（用于兜底去重）
 
 function $(id) { return document.getElementById(id); }
 
@@ -162,6 +170,33 @@ function openSms(url) {
       document.body.appendChild(a);
       a.click();
       setTimeout(function () { if (a.parentNode) a.parentNode.removeChild(a); }, 2000);
+      return;
+    } catch (e) { /* 回退到 location.href */ }
+  }
+
+  /* Android / 通用浏览器：可选“发完短信自动回浏览器”模式
+   * 原理：用隐藏 iframe 加载 sms: URL，主页面不被导航、保持活跃；
+   *       短信 App 作为新任务打开，关闭后系统自动回到本页面，状态不丢。
+   *       若 iframe 未成功拉起短信（页面仍可见），兜底用 window.location.href。 */
+  smsOpened = false;
+  if (AUTO_RETURN) {
+    try {
+      var iframe = document.createElement('iframe');
+      iframe.style.cssText = 'display:none;width:0;height:0;border:0;position:absolute;left:-9999px;';
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(function () { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); }, 4000);
+
+      /* 尝试把浏览器拉回前台（部分安卓浏览器有效；无效也无害） */
+      setTimeout(function () { try { window.focus(); } catch (e) {} }, 300);
+      setTimeout(function () { try { window.focus(); } catch (e) {} }, 1200);
+
+      /* 兜底：若 900ms 内页面没被切到后台，说明 iframe 没拉起短信，改用直接跳转 */
+      setTimeout(function () {
+        if (!document.hidden && !smsOpened && isRun) {
+          window.location.href = url;
+        }
+      }, 900);
       return;
     } catch (e) { /* 回退到 location.href */ }
   }
@@ -447,6 +482,10 @@ function handleVisible() {
   }
   scheduleResume();
 }
+/* 页面被切到后台 = 短信 App 已拉起，标记 smsOpened，避免兜底重复唤起 */
+document.addEventListener('visibilitychange', function () {
+  if (document.visibilityState === 'hidden') smsOpened = true;
+});
 document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
@@ -557,6 +596,17 @@ if (isInApp) {
   var tip = $('inappTip');
   tip.style.display = 'block';
   tip.innerHTML = '⚠️ 当前是微信/QQ 等内置浏览器，<u>无法唤起短信应用</u>（sms: 协议被屏蔽）。请点击右上角「…」选择「在 Safari / 浏览器中打开」后再使用。';
+}
+/* “发完短信自动回浏览器”开关：iOS 用逐条点击模式，无需此选项 */
+var autoReturnRow = $('autoReturnRow');
+if (isIOS) {
+  if (autoReturnRow) autoReturnRow.style.display = 'none';
+} else {
+  var chk = $('autoReturnChk');
+  if (chk) {
+    AUTO_RETURN = chk.checked;
+    chk.addEventListener('change', function () { AUTO_RETURN = chk.checked; });
+  }
 }
 restoreState();
 if (typeof XLSX === 'undefined') {
