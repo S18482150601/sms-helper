@@ -71,6 +71,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
   <div id="currentPhoneInfo"></div>
   <button id="startBtn" class="green" type="button">开始无间隔批量唤起</button>
   <button id="iosOpenBtn" class="green" type="button" style="display:none">点击唤起短信</button>
+  <button id="manualNextBtn" class="gray" type="button" style="display:none">▶ 没自动跳时，点这里接下一条</button>
   <button id="stopBtn" class="gray" type="button">停止任务</button>
   <button id="exportLogBtn" class="red" type="button">导出发送记录</button>
   <button id="clearSentBtn" class="gray" type="button">清空已发送记录</button>
@@ -532,6 +533,14 @@ function stopResumeTimer() {
   if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
 }
 
+function resumeNow() {
+  if (!isRun || !awaitingReturn) return;
+  stopResumeTimer();
+  awaitingReturn = false;
+  saveState();
+  processNext();
+}
+
 function scheduleResume() {
   if (!isRun || !awaitingReturn) return;
   if (resumeTimer) return;
@@ -539,13 +548,20 @@ function scheduleResume() {
   var wait = Math.max(0, FOLLOW_UP_MS - elapsed);
   resumeTimer = setTimeout(function () {
     resumeTimer = null;
-    if (isRun && awaitingReturn) {
-      awaitingReturn = false;
-      saveState();
-      processNext();
-    }
+    if (isRun && awaitingReturn) resumeNow();
   }, wait);
 }
+
+/* 看门狗：部分安卓浏览器从短信 App 返回前台时不一定触发 visibilitychange / focus，
+ * 这里每 700ms 主动自检一次——只要「已唤起过短信」且「页面已回到前台」，就自动接续下一条。
+ * 这样即使事件没触发，也能连续自动跳转，无需任何手动操作。 */
+setInterval(function () {
+  if (!isRun || !awaitingReturn) return;
+  if (document.hidden) return;                   // 仍在短信 App / 后台
+  if (!smsIntentAt) return;                      // 尚未真正唤起过短信
+  if (Date.now() - smsIntentAt < 1500) return;   // 刚回到前台，稍等片刻，避免误判
+  resumeNow();
+}, 700);
 
 function handleVisible() {
   if (document.visibilityState === 'hidden') {
@@ -634,6 +650,12 @@ $('clearSentBtn').addEventListener('click', function () {
 });
 
 $('iosOpenBtn').addEventListener('click', iosOpenCurrent);
+
+$('manualNextBtn').addEventListener('click', function () {
+  if (!isRun) { alert('请先点击“开始无间隔批量唤起”'); return; }
+  if (!awaitingReturn) { alert('当前不在等待返回状态，无需手动接续'); return; }
+  resumeNow();
+});
 
 $('stopBtn').addEventListener('click', function () {
   if (!isRun && !awaitingReturn && !iosPending) { alert('当前没有正在执行的任务'); return; }
@@ -725,6 +747,9 @@ if (mode === 'ios') {
   $('iosHint').style.display = 'block';
   $('miniTip').style.display = 'none';
   $('startBtn').textContent = '开始批量任务（苹果逐条模式）';
+} else {
+  /* 安卓/通用浏览器：显示“手动接续”兜底按钮（正常会自动跳，用不到也没关系） */
+  $('manualNextBtn').style.display = 'block';
 }
 if (isInApp) {
   var tip = $('inappTip');
