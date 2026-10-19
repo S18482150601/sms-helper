@@ -48,7 +48,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 
 <div class="card">
   <h3>1. 上传Excel表格</h3>
-  <p class="desc">表格第一行为表头，<b>必须包含【手机号】列</b>，支持姓名等自定义字段。支持 .xlsx / .xls / .csv。</p>
+  <p class="desc">表格第一行为表头，<b>必须包含【手机号】列</b>，支持姓名等自定义字段。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   <div id="fileTip" class="tip"></div>
   <div class="btn-row">
@@ -66,18 +66,17 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 
 <div class="card">
   <h3>3. 发送控制</h3>
-  <div class="danger">⚠️【无间隔极速模式】拉起短信页面立刻标记记录，无等待、无延时！只要打开短信编辑页，无论是否发送，直接计入发送日志！适合批量唤起短信，事后人工核对。网页无法感知短信是否真实发送状态，也不能自动点击“发送”。</div>
+  <div class="danger">⚠️【无间隔极速模式】拉起短信编辑页后立刻记录，并把该号码标记为「已发送」、同时把它从待发队列中删除（发一条删一条）。<b>已发送过的号码绝不会重复发送</b>，无论返回页面多少次、页面重载多少次都不会重发。网页无法感知短信是否真正发出，也不能自动点击“发送”，请事后人工核对。</div>
   <div class="progress-line">当前进度：<span id="progress">0/0</span><span class="badge" id="runBadge" style="display:none">运行中</span></div>
-  <label class="opt-row" id="autoReturnRow">
-    <input type="checkbox" id="autoReturnChk" checked>
-    <span>发完短信自动回到浏览器（关闭短信后自动跳回本页面）</span>
-  </label>
   <div id="currentPhoneInfo"></div>
   <button id="startBtn" class="green" type="button">开始无间隔批量唤起</button>
   <button id="iosOpenBtn" class="green" type="button" style="display:none">点击唤起短信</button>
+  <button id="manualNextBtn" class="gray" type="button" style="display:none">▶ 没自动跳时，点这里接下一条</button>
   <button id="stopBtn" class="gray" type="button">停止任务</button>
   <button id="exportLogBtn" class="red" type="button">导出发送记录</button>
-  <p class="mini-danger" id="miniTip">提示：点击“开始”后会连续跳转到系统短信编辑页，请保持浏览器后台运行，返回浏览器时会自动跳入下一条号码。</p>
+  <button id="clearSentBtn" class="gray" type="button">清空已发送记录</button>
+  <p class="mini-danger" id="sentInfo"></p>
+  <p class="mini-danger" id="miniTip">提示：点击“开始”后会连续跳转到系统短信编辑页，请保持浏览器后台运行，返回浏览器时会自动跳入下一条号码。安卓首次跳转若弹出「允许打开『信息』」确认框，请点「允许」，并勾选「记住 / 始终允许」，之后就不会每条都询问。</p>
   <p class="mini-danger" id="iosHint" style="display:none">苹果手机提示：iOS 出于安全限制，只有「用户点击」才允许唤起短信应用，网页无法自动连续跳转。因此苹果手机上请每条点击一次上方绿色按钮；点击后返回浏览器会自动显示下一条号码，无需等待。</p>
 </div>
 
@@ -99,6 +98,9 @@ var awaitingReturn = false; // 已跳转短信页，等待返回浏览器后继�
 var stepId = 0;         // 步进令牌，防止重复推进
 var lastNavAt = 0;      // 上次跳转时间，防止重载时重复触发
 var resumeTimer = null; // 续跑调度定时器
+var sentPhones = {};    // 已发送号码表：{归一化号码: 首次唤起时间}，发过的号码绝不重复发送
+var runTotal = 0;       // 本次任务开始时的队列长度（用于进度显示）
+var smsIntentAt = 0;    // 最近一次检测到“已唤起短信/页面失去焦点”的时间，用于避免重复触发授权弹窗
 
 /* ---------------- 平台识别 ----------------
  * iOS 与 Android 的 sms: 协议格式不同：
@@ -117,9 +119,8 @@ var isInApp = /MicroMessenger|MQQBrowser|QQBrowser|\bQQ\/|DingTalk|AlipayClient|
 
 var STORE_KEY = 'sms_helper_state_v1';
 var FOLLOW_UP_MS = 800;   // 跳转后最小防抖间隔（毫秒）
-var NAV_FALLBACK_MS = 1200; // 短信应用未拉起的兜底续跑时间
-var AUTO_RETURN = true;   // 发完短信自动回到浏览器页面（隐藏 iframe 唤起 + focus 拉回）
-var smsOpened = false;    // 本次唤起是否已确认短信 App 被拉起（用于兜底去重）
+var NAV_FALLBACK_MS = 3000; // 一直没唤起短信时的兜底续跑时间（需大于 iframe 兜底的 1.5s）
+var MAX_PHONES = 4000;    // 表格号码上限：一次最多读取 4000 条电话，超出部分自动截断
 
 function $(id) { return document.getElementById(id); }
 
@@ -174,33 +175,68 @@ function openSms(url) {
     } catch (e) { /* 回退到 location.href */ }
   }
 
-  /* Android / 通用浏览器：可选“发完短信自动回浏览器”模式
-   * 原理：用隐藏 iframe 加载 sms: URL，主页面不被导航、保持活跃；
-   *       短信 App 作为新任务打开，关闭后系统自动回到本页面，状态不丢。
-   *       若 iframe 未成功拉起短信（页面仍可见），兜底用 window.location.href。 */
-  smsOpened = false;
-  if (AUTO_RETURN) {
-    try {
-      var iframe = document.createElement('iframe');
-      iframe.style.cssText = 'display:none;width:0;height:0;border:0;position:absolute;left:-9999px;';
-      iframe.src = url;
-      document.body.appendChild(iframe);
-      setTimeout(function () { if (iframe.parentNode) iframe.parentNode.removeChild(iframe); }, 4000);
+  /* Android / 通用浏览器：用隐藏 iframe 唤起短信，主页面**不被导航**。
+   * 为什么用 iframe 而不是顶层跳转？
+   *   顶层跳转 window.location.href = 'sms:...' 会把当前标签页“导航走”，
+   *   发完短信切回浏览器时页面往往已被卸载/变成空白页，导致**只跳到第 1 条就断了**。
+   *   用隐藏 iframe 唤起时主页面一直留在浏览器里，关闭短信 App 后浏览器自动回到前台，
+   *   visibilitychange/focus 立即触发，自动接上下一条，实现“你只管点发送、其余全自动”。
+   * 关于“一直需要授权”：只要保证一条短信只触发**一次**跳转即可（弹一次确认框）。
+   *   这里先用 iframe；仅当 1.5s 内完全没检测到唤起（无失焦、页面仍可见）时，
+   *   才补一次顶层跳转兜底——此时并没有任何弹窗，所以不会造成“两次授权”。 */
+  var ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  ifr.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(ifr);
+  ifr.src = url;
+  setTimeout(function () { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 4000);
 
-      /* 尝试把浏览器拉回前台（部分安卓浏览器有效；无效也无害） */
-      setTimeout(function () { try { window.focus(); } catch (e) {} }, 300);
-      setTimeout(function () { try { window.focus(); } catch (e) {} }, 1200);
+  /* 兜底：iframe 被浏览器拦截（短信没打开）时，补一次顶层跳转；已唤起过则跳过 */
+  setTimeout(function () {
+    if (smsIntentAt) return;                          // 已经弹过确认框 / 切到过短信，不再补跳
+    if (!isRun || !awaitingReturn) return;
+    if (document.hidden) return;
+    window.location.href = url;
+  }, 1500);
+}
 
-      /* 兜底：若 900ms 内页面没被切到后台，说明 iframe 没拉起短信，改用直接跳转 */
-      setTimeout(function () {
-        if (!document.hidden && !smsOpened && isRun) {
-          window.location.href = url;
-        }
-      }, 900);
-      return;
-    } catch (e) { /* 回退到 location.href */ }
-  }
-  window.location.href = url;
+/* ---------------- 号码判重（核心：发过的号码不再重复发送） ---------------- */
+/* 归一化：去掉空格/横杠/括号/字母，并统一掉国际/国内前缀，
+ * 避免同一个号码因写法不同（+86 / 86 / 0086 / 前导 0）被判成两个号码而重复发送 */
+function normPhone(p) {
+  var s = String(p === undefined || p === null ? '' : p).replace(/[^0-9]/g, '');
+  if (s.indexOf('0086') === 0 && s.length > 13) s = s.slice(4);        // 0086 国际前缀
+  else if (s.indexOf('86') === 0 && s.length > 11) s = s.slice(2);     // 86 国际前缀
+  if (s.length === 12 && s.charAt(0) === '0' && s.charAt(1) === '1') s = s.slice(1); // 前导 0
+  return s;
+}
+function phoneOfRow(idx) {
+  var row = tableData[idx] || [];
+  var v = row[phoneIdx];
+  return String(v === undefined || v === null ? '' : v).trim();
+}
+function alreadySent(phone) {
+  var k = normPhone(phone);
+  return !!k && Object.prototype.hasOwnProperty.call(sentPhones, k);
+}
+function markSent(phone) {
+  var k = normPhone(phone);
+  if (!k) return;
+  if (!Object.prototype.hasOwnProperty.call(sentPhones, k)) sentPhones[k] = nowStr();
+  updateSentInfo();
+}
+function sentCount() {
+  var n = 0, k;
+  for (k in sentPhones) if (Object.prototype.hasOwnProperty.call(sentPhones, k)) n++;
+  return n;
+}
+function updateSentInfo() {
+  var el = $('sentInfo');
+  if (!el) return;
+  var n = sentCount();
+  el.textContent = n
+    ? '已发送记录：' + n + ' 个号码（这些号码一律不再重复发送；如需重发请点「清空已发送记录」）'
+    : '已发送记录：空（还没有号码被标记为已发送）';
 }
 
 /* 取出队列里当前待处理的号码与内容 */
@@ -225,6 +261,7 @@ function saveState() {
       header: header, tableData: tableData, queue: queue,
       currentIndex: currentIndex, sendLog: sendLog,
       isRun: isRun, awaitingReturn: awaitingReturn, iosPending: iosPending,
+      sentPhones: sentPhones, runTotal: runTotal,
       template: $('template').value
     }));
   } catch (e) { /* 隐私模式下可能不可用，忽略 */ }
@@ -262,10 +299,15 @@ function markQueueChecks() {
 
 function updateProgress() {
   var checkedCount = document.querySelectorAll('.rowCheck:checked').length;
-  var total = isRun ? queue.length : checkedCount;
-  var done = isRun ? Math.min(currentIndex, total) : 0;
-  $('progress').textContent = done + '/' + total;
+  if (isRun) {
+    /* 队列会随着“发一条删一条”不断变短，用任务开始时的总数算进度，计数不会回退 */
+    var total = Math.max(runTotal, queue.length);
+    $('progress').textContent = (total - queue.length) + '/' + total;
+  } else {
+    $('progress').textContent = '0/' + checkedCount;
+  }
   $('runBadge').style.display = isRun ? 'inline-block' : 'none';
+  updateSentInfo();
 }
 
 /* ---------------- 读取上传文件 ---------------- */
@@ -313,6 +355,13 @@ $('fileInput').addEventListener('change', function (e) {
         return p !== undefined && p !== null && String(p).trim() !== '';
       });
 
+      /* 号码上限：超过 4000 条只保留前 4000 条，其余自动截断 */
+      var overflow = 0;
+      if (tableData.length > MAX_PHONES) {
+        overflow = tableData.length - MAX_PHONES;
+        tableData = tableData.slice(0, MAX_PHONES);
+      }
+
       if (!tableData.length) {
         renderTable(); updateProgress();
         setTip('表格里没有可用的手机号数据', true);
@@ -321,12 +370,23 @@ $('fileInput').addEventListener('change', function (e) {
 
       /* 新文件 = 新任务，重置队列与进度（保留历史发送记录便于对账） */
       queue = []; currentIndex = 0; isRun = false; awaitingReturn = false; iosPending = null;
+      runTotal = 0;
       stopResumeTimer();
       $('iosOpenBtn').disabled = true;
       renderTable();
+      markQueueChecks();
       updateProgress();
       saveState();
-      setTip('读取成功，共 ' + tableData.length + ' 条联系人（请勾选待发送号码）');
+
+      /* 已经发送过的号码自动取消勾选，避免误把发过的号码再发一遍 */
+      var dupUnchecked = 0;
+      document.querySelectorAll('.rowCheck').forEach(function (cb) {
+        if (alreadySent(phoneOfRow(Number(cb.dataset.idx)))) { cb.checked = false; dupUnchecked++; }
+      });
+      setTip('读取成功，共 ' + tableData.length + ' 条联系人'
+        + (overflow ? '；表格共 ' + (tableData.length + overflow) + ' 条号码，已按上限保留前 ' + MAX_PHONES + ' 条、截断 ' + overflow + ' 条' : '')
+        + (dupUnchecked ? '；其中 ' + dupUnchecked + ' 个号码此前已发送过，已自动取消勾选' : '')
+        + '（请勾选待发送号码）', overflow > 0);
     } catch (err) {
       setTip('文件解析失败：' + (err && err.message ? err.message : err), true);
     }
@@ -359,33 +419,52 @@ $('tableBox').addEventListener('change', function (e) {
 /* ---------------- 核心：逐条唤起（Android / 通用浏览器） ---------------- */
 function processNext() {
   if (!isRun) return;
+
+  /* 先把队列里“已经发送过”的号码直接删除，绝不重复唤起。
+   * 页面重载 / 从短信页返回后都会走到这里，所以计数不会从头开始，也不会重发同一条。 */
+  var dropped = 0;
+  while (currentIndex < queue.length && alreadySent(phoneOfRow(queue[currentIndex].rowIdx))) {
+    queue.splice(currentIndex, 1);
+    dropped++;
+  }
+  if (dropped) saveState();
   if (currentIndex >= queue.length) { finishTask(); return; }
 
   var it = currentItem();
-  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条，剩余 ' + queue.length + ' 条）';
 
-  /* 唤起即记录：无论用户是否真的点击发送 */
+  /* 唤起即记录：无论用户是否真的点击发送。
+   * 紧接着立刻把这个号码标记为“已发送”，并把这条数据从队列中删除（发一条删一条），
+   * 因此无论任务重载多少次、返回页面多少次，这条短信都不会再被发第二次。 */
   pushLog(it.phone, it.msg);
+  markSent(it.phone);
+  queue.splice(currentIndex, 1);
+
+  /* 发一条删一条的加强版：把队列里“归一化后与当前号码相同”的其它条目一并删除，
+   * 从根上杜绝同一个号码从队列另一条记录里被再发一次。 */
+  var curKey = normPhone(it.phone);
+  queue = queue.filter(function (q) { return normPhone(phoneOfRow(q.rowIdx)) !== curKey; });
 
   stepId++;
   var myStep = stepId;
-  currentIndex++;
   updateProgress();
 
   awaitingReturn = true;
+  smsIntentAt = 0;
   saveState();
 
   lastNavAt = Date.now();
   openSms(buildSmsUrl(it.phone, it.msg));
 
-  /* 兜底：若短信应用未拉起到前台（页面仍可见），继续下一条，避免任务卡死 */
+  /* 兜底：只有“完全没唤起短信”（页面始终可见、且从未失焦/切走）才自动跳下一条，避免任务卡死；
+   * 一旦检测到唤起（弹窗 / 已切到短信），就安心等用户返回，绝不重复跳转。 */
   setTimeout(function () {
     if (stepId !== myStep) return;                 // 已被后续步骤推进，忽略
-    if (isRun && awaitingReturn && !document.hidden) {
-      awaitingReturn = false;
-      saveState();
-      processNext();
-    }
+    if (!isRun || !awaitingReturn) return;
+    if (document.hidden || smsIntentAt) return;    // 已唤起过，等用户返回
+    awaitingReturn = false;
+    saveState();
+    processNext();
   }, NAV_FALLBACK_MS);
 }
 
@@ -394,11 +473,14 @@ function processNext() {
  * 所以改为：显示当前号码 → 用户点击 → 确认短信页打开后记录并前进。 */
 function iosPrepare() {
   if (!isRun) return;
+  while (currentIndex < queue.length && alreadySent(phoneOfRow(queue[currentIndex].rowIdx))) {
+    queue.splice(currentIndex, 1);
+  }
   if (currentIndex >= queue.length) { finishTask(); return; }
   var it = currentItem();
   var btn = $('iosOpenBtn');
-  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
-  btn.textContent = '点击唤起短信（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条）';
+  $('currentPhoneInfo').textContent = '当前号码：' + it.phone + '（第 ' + (currentIndex + 1) + '/' + queue.length + ' 条，剩余 ' + queue.length + ' 条）';
+  btn.textContent = '点击唤起短信（剩余 ' + queue.length + ' 条）';
   btn.disabled = false;
   updateProgress();
   saveState();
@@ -433,8 +515,9 @@ function iosOpenCurrent() {
 function confirmIOSPending() {
   if (!iosPending) return;
   pushLog(iosPending.phone, iosPending.msg);
+  markSent(iosPending.phone);
   iosPending = null;
-  currentIndex++;
+  if (currentIndex < queue.length) queue.splice(currentIndex, 1);   // 发一条删一条
   updateProgress();
   $('iosOpenBtn').disabled = false;
   saveState();
@@ -458,37 +541,68 @@ function stopResumeTimer() {
   if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
 }
 
-function scheduleResume() {
+/* 是否满足“续跑下一条”的条件：
+ *   任务在跑 + 正在等返回 + 本轮确实检测到过“短信被打开”（smsIntentAt 不早于本次打开时刻）。
+ * 这样可避免只触发了 focus / 定时器、但短信其实没打开时误往前跳，杜绝漏计与跳号。 */
+function canResume() {
+  return isRun && awaitingReturn && smsIntentAt && smsIntentAt >= lastNavAt;
+}
+
+function resumeNow(force) {
   if (!isRun || !awaitingReturn) return;
+  if (!force && !canResume()) return;
+  stopResumeTimer();
+  awaitingReturn = false;   // 先置位，防止 focus + 看门狗 + 定时器同时触发时重复推进
+  saveState();
+  processNext();
+}
+
+function scheduleResume() {
+  if (!canResume()) return;
   if (resumeTimer) return;
   var elapsed = Date.now() - lastNavAt;
   var wait = Math.max(0, FOLLOW_UP_MS - elapsed);
   resumeTimer = setTimeout(function () {
     resumeTimer = null;
-    if (isRun && awaitingReturn) {
-      awaitingReturn = false;
-      saveState();
-      processNext();
-    }
+    if (canResume()) resumeNow();
   }, wait);
 }
 
+/* 看门狗：完全不依赖 visibilitychange / focus 事件，
+ * 每 700ms 主动轮询一次页面可见性——先观察到“页面切到后台”（说明短信 App 已打开），
+ * 再观察到“回到前台”就自动接续下一条。这样即使浏览器不发事件也能连续自动跳转。 */
+setInterval(function () {
+  if (!isRun || !awaitingReturn) return;
+  if (document.hidden) {                          // 已切到后台 → 认定本轮短信 App 已打开
+    if (!smsIntentAt || smsIntentAt < lastNavAt) smsIntentAt = Date.now();
+    return;
+  }
+  if (!canResume()) return;                       // 还没打开过短信，交给兜底逻辑
+  if (Date.now() - smsIntentAt < 1500) return;    // 刚回到前台，稍等片刻
+  resumeNow();
+}, 700);
+
 function handleVisible() {
+  if (document.visibilityState === 'hidden') {
+    /* 切到后台 = 短信 App 已在前台：记录“已唤起”，避免再补跳一次造成重复授权 */
+    smsIntentAt = Date.now();
+    return;
+  }
   if (document.visibilityState !== 'visible') return;
   if (mode === 'ios') {
     /* iOS：返回浏览器即确认上一条已唤起，立刻切到下一条（0 等待） */
     if (isRun && iosPending) confirmIOSPending();
     return;
   }
+  /* 回到浏览器：立刻自动接上下一条 */
   scheduleResume();
 }
-/* 页面被切到后台 = 短信 App 已拉起，标记 smsOpened，避免兜底重复唤起 */
-document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden') smsOpened = true;
-});
+
 document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
+/* 窗口失去焦点（弹出“允许打开信息”确认框 / 切到短信 App）也算已唤起 */
+window.addEventListener('blur', function () { smsIntentAt = Date.now(); });
 
 /* ---------------- 按钮 ---------------- */
 $('startBtn').addEventListener('click', function () {
@@ -496,7 +610,33 @@ $('startBtn').addEventListener('click', function () {
   var checked = Array.prototype.slice.call(document.querySelectorAll('.rowCheck:checked'));
   if (!checked.length) { alert('请勾选至少1个联系人'); return; }
 
-  queue = checked.map(function (cb) { return { rowIdx: Number(cb.dataset.idx) }; });
+  /* 组建队列时就把“已经发过的号码”和“本次勾选里重复的号码”排除掉，
+   * 这是第一道防线；即使这里漏了，processNext 也会在发送前再拦一次。 */
+  var seen = {}, skippedSent = 0, skippedDup = 0, skippedEmpty = 0;
+  queue = [];
+  checked.forEach(function (cb) {
+    var idx = Number(cb.dataset.idx);
+    var phone = phoneOfRow(idx);
+    var key = normPhone(phone);
+    if (!key) { skippedEmpty++; return; }              // 空号码不发送
+    if (alreadySent(phone)) { skippedSent++; return; } // 已发送过 → 永不再发
+    if (seen[key]) { skippedDup++; return; }           // 同一号码重复勾选 → 只发一次
+    seen[key] = true;
+    queue.push({ rowIdx: idx });
+  });
+
+  if (!queue.length) {
+    alert('勾选的号码此前都已发送过（或都是重复号码），无需再发。\n如需重新发送，请先点击「清空已发送记录」。');
+    return;
+  }
+
+  var note = [];
+  if (skippedSent) note.push('已发送过 ' + skippedSent + ' 个');
+  if (skippedDup) note.push('重复号码 ' + skippedDup + ' 个');
+  if (skippedEmpty) note.push('空号码 ' + skippedEmpty + ' 个');
+  setTip('本次将发送 ' + queue.length + ' 条' + (note.length ? '；已自动跳过：' + note.join('、') : ''));
+
+  runTotal = queue.length;
   currentIndex = 0;
   isRun = true;
   awaitingReturn = false;
@@ -517,7 +657,24 @@ $('startBtn').addEventListener('click', function () {
   }
 });
 
+/* 清空已发送记录：清空后这些号码才会被允许重新发送 */
+$('clearSentBtn').addEventListener('click', function () {
+  var n = sentCount();
+  if (!n) { alert('当前没有已发送记录。'); return; }
+  if (!confirm('确定清空已发送记录吗？\n共 ' + n + ' 个号码将被忘记，之后再勾选这些号码就会重新发送。')) return;
+  sentPhones = {};
+  saveState();
+  updateSentInfo();
+  setTip('已清空 ' + n + ' 个号码的发送记录，这些号码现在可以重新发送了。');
+});
+
 $('iosOpenBtn').addEventListener('click', iosOpenCurrent);
+
+$('manualNextBtn').addEventListener('click', function () {
+  if (!isRun) { alert('请先点击“开始无间隔批量唤起”'); return; }
+  if (!awaitingReturn) { alert('当前不在等待返回状态，无需手动接续'); return; }
+  resumeNow(true);   // 强制接续，不受自动续跑条件限制
+});
 
 $('stopBtn').addEventListener('click', function () {
   if (!isRun && !awaitingReturn && !iosPending) { alert('当前没有正在执行的任务'); return; }
@@ -559,13 +716,31 @@ function restoreState() {
   isRun = !!st.isRun;
   awaitingReturn = !!st.awaitingReturn;
   iosPending = st.iosPending || null;
+  sentPhones = st.sentPhones || {};
+  /* 老版本没有 sentPhones 字段：用已有发送日志补建，保证历史发过的号码也不会被重发 */
+  if (!st.sentPhones) {
+    (st.sendLog || []).forEach(function (r) { markSent(r['手机号']); });
+  }
+  runTotal = st.runTotal || queue.length;
   phoneIdx = header.indexOf('手机号');
   if (typeof st.template === 'string') $('template').value = st.template;
+
+  /* 把队列里已经发送过的号码直接剔除，恢复后不可能再发给同一个人 */
+  var kept = 0;
+  for (var i = queue.length - 1; i >= 0; i--) {
+    if (i >= currentIndex && alreadySent(phoneOfRow(queue[i].rowIdx))) {
+      queue.splice(i, 1);
+      kept++;
+    }
+  }
+  if (currentIndex > queue.length) currentIndex = queue.length;
+  saveState();   // 把剔除后的队列与已发送记录写回，保证下次加载状态一致
 
   renderTable();
   markQueueChecks();
   updateProgress();
-  setTip('已恢复上次任务：' + tableData.length + ' 条联系人，已完成 ' + currentIndex + '/' + queue.length);
+  setTip('已恢复上次任务：' + tableData.length + ' 条联系人，队列剩余 ' + (queue.length - currentIndex) + ' 条'
+    + (kept ? '（已剔除 ' + kept + ' 个此前发过的号码）' : ''));
 
   if (!isRun) return;
 
@@ -582,7 +757,8 @@ function restoreState() {
     }
   } else {
     lastNavAt = 0;
-    scheduleResume();      // 立刻续跑下一条
+    smsIntentAt = Date.now();  // 页面是在跳转途中被重载的，视为本轮短信已唤起过，直接续跑下一条
+    scheduleResume();
   }
 }
 
@@ -591,24 +767,17 @@ if (mode === 'ios') {
   $('iosHint').style.display = 'block';
   $('miniTip').style.display = 'none';
   $('startBtn').textContent = '开始批量任务（苹果逐条模式）';
+} else {
+  /* 安卓/通用浏览器：显示“手动接续”兜底按钮（正常会自动跳，用不到也没关系） */
+  $('manualNextBtn').style.display = 'block';
 }
 if (isInApp) {
   var tip = $('inappTip');
   tip.style.display = 'block';
   tip.innerHTML = '⚠️ 当前是微信/QQ 等内置浏览器，<u>无法唤起短信应用</u>（sms: 协议被屏蔽）。请点击右上角「…」选择「在 Safari / 浏览器中打开」后再使用。';
 }
-/* “发完短信自动回浏览器”开关：iOS 用逐条点击模式，无需此选项 */
-var autoReturnRow = $('autoReturnRow');
-if (isIOS) {
-  if (autoReturnRow) autoReturnRow.style.display = 'none';
-} else {
-  var chk = $('autoReturnChk');
-  if (chk) {
-    AUTO_RETURN = chk.checked;
-    chk.addEventListener('change', function () { AUTO_RETURN = chk.checked; });
-  }
-}
 restoreState();
+updateSentInfo();
 if (typeof XLSX === 'undefined') {
   setTip('注意：表格组件未加载成功，上传/导出将不可用，请联网后刷新页面', true);
 }
