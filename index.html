@@ -40,11 +40,37 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 .tip.err{color:#dc2626}
 .badge{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px}
 .inapp-tip{display:none;background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;padding:12px;margin-bottom:15px;font-size:14px;font-weight:bold;line-height:1.6}
+/* ---------- 卡密授权锁屏 ---------- */
+.gate{position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:#f5f7fa;display:flex;align-items:center;justify-content:center;padding:18px;overflow:auto;-webkit-overflow-scrolling:touch}
+.gate-box{background:#fff;border-radius:14px;padding:18px;box-shadow:0 4px 24px #0000001f;width:100%;max-width:420px;margin:auto}
+.gate-msg{font-size:13px;margin:6px 0 4px;min-height:18px;color:#dc2626;line-height:1.5}
+.gate-msg.ok{color:#16a34a}
+.gate-note{font-size:12px;color:#888;line-height:1.6;margin-top:10px}
+.gate-tiers{font-size:12px;color:#1d4ed8;background:#eff6ff;border-radius:8px;padding:8px 10px;margin:8px 0;line-height:1.6}
+.lic-bar{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;border-radius:10px;padding:10px 12px;margin-bottom:15px;font-size:13px;line-height:1.7}
+.lic-bar.warn{background:#fff7ed;color:#9a3412;border-color:#fdba74}
+.lic-bar.err{background:#fee2e2;color:#991b1b;border-color:#fecaca}
 </style>
 </head>
 <body>
 
 <div id="inappTip" class="inapp-tip"></div>
+
+<div id="licBar" class="lic-bar" style="display:none"></div>
+
+<!-- 卡密锁屏：默认显示，验证通过后由 JS 隐藏（避免受保护内容闪现） -->
+<div id="gate" class="gate">
+  <div class="gate-box">
+    <h3>卡密验证</h3>
+    <p class="desc">本工具需卡号 + 卡密才能使用。请将购买所得的卡号与卡密填入下方。</p>
+    <div class="gate-tiers">可选授权时长：1天 / 7天 / 15天 / 1个月 / 3个月 / 6个月 / 1年（由卡号自动识别）</div>
+    <input type="text" id="cardNoInput" placeholder="卡号，如 SMS-1Y-V7ZSW83N" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <input type="text" id="cardKeyInput" placeholder="卡密，如 XXXX-XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false">
+    <div id="gateMsg" class="gate-msg"></div>
+    <button id="activateBtn" class="green" type="button">激活并进入</button>
+    <p class="gate-note">提示：授权记录保存在本浏览器本地，清除浏览器数据会丢失授权（需重新输入卡密，重新计时）。请勿在微信 / QQ 内置浏览器中打开本页。</p>
+  </div>
+</div>
 
 <div class="card">
   <h3>1. 上传Excel表格</h3>
@@ -490,8 +516,215 @@ document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
 
+/* =========================================================================
+ * 卡密授权（卡号 + 卡密）
+ * 校验方式：SHA256(卡号 + "|" + 卡密) 取前 16 位十六进制，与内置哈希表比对。
+ * 页面内只保存哈希、不保存卡密原文 —— 即使有人拿到本页源码，也无法反推出
+ * 任何卡密，更无法伪造出能通过校验的卡号 / 卡密组合。
+ * 授权时长由卡号前缀决定：SMS-1D/7D/15D/1M/3M/6M/1Y。
+ * 注意：这是纯前端校验，强度属于“防君子不防小人”（详见 README）。
+ * ========================================================================= */
+
+/* ---- 纯 JS SHA-256（无依赖，file:// 离线也可用） ---- */
+var SHA256 = (function () {
+  var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+           0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+           0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+           0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+           0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+           0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+           0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+           0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+  var H0 = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  function rr(x, n) { return (x >>> n) | (x << (32 - n)); }
+  function utf8(str) {
+    var out = [], i, c;
+    for (i = 0; i < str.length; i++) {
+      c = str.charCodeAt(i);
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | (c >> 6), 128 | (c & 63));
+      else out.push(224 | (c >> 12), 128 | ((c >> 6) & 63), 128 | (c & 63));
+    }
+    return out;
+  }
+  return function (str) {
+    var bytes = utf8(String(str)), bitLen = bytes.length * 8, i, j;
+    bytes.push(0x80);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    bytes.push(0, 0, 0, 0);
+    bytes.push((bitLen >>> 24) & 255, (bitLen >>> 16) & 255, (bitLen >>> 8) & 255, bitLen & 255);
+    var H = H0.slice();
+    for (i = 0; i < bytes.length; i += 64) {
+      var w = new Array(64);
+      for (j = 0; j < 16; j++) {
+        w[j] = (bytes[i + j * 4] << 24) | (bytes[i + j * 4 + 1] << 16) | (bytes[i + j * 4 + 2] << 8) | bytes[i + j * 4 + 3];
+      }
+      for (j = 16; j < 64; j++) {
+        var s0 = rr(w[j - 15], 7) ^ rr(w[j - 15], 18) ^ (w[j - 15] >>> 3);
+        var s1 = rr(w[j - 2], 17) ^ rr(w[j - 2], 19) ^ (w[j - 2] >>> 10);
+        w[j] = (w[j - 16] + s0 + w[j - 7] + s1) | 0;
+      }
+      var a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+      for (j = 0; j < 64; j++) {
+        var S1 = rr(e, 6) ^ rr(e, 11) ^ rr(e, 25);
+        var ch = (e & f) ^ ((~e) & g);
+        var t1 = (h + S1 + ch + K[j] + w[j]) | 0;
+        var S0 = rr(a, 2) ^ rr(a, 13) ^ rr(a, 22);
+        var maj = (a & b) ^ (a & c) ^ (b & c);
+        var t2 = (S0 + maj) | 0;
+        h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+      }
+      H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + c) | 0; H[3] = (H[3] + d) | 0;
+      H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+    }
+    var hex = '';
+    for (i = 0; i < 8; i++) hex += ('00000000' + (H[i] >>> 0).toString(16)).slice(-8);
+    return hex;
+  };
+})();
+
+/* ---- 卡密哈希表（格式 "卡号:哈希"，哈希 = sha256(卡号|卡密) 前 16 位） ---- */
+var CARD_DB = "SMS-1D-U85MM4KF:32c8815c043b13dd,SMS-1D-U8NL59X5:81968466951e04a1,SMS-1D-8ELVZRUG:1d1c402d0b98132b,SMS-1D-M8YTEAR4:5a6cb5dd00d4fd76,SMS-1D-CZJV9VQE:395877ce1dfea41d,SMS-1D-QL3MGAMN:37e45e4ef58458b7,SMS-1D-7AR54Q7B:d9f88a7ad1e3b6b6,SMS-1D-DKTKFSYZ:adb66d1ec3d1d1e9,SMS-1D-ALXHG2VS:19db020bd71b683f,SMS-1D-3G69E585:f34b353b280b4158,SMS-7D-XE72TX58:53c731dfdeec944a,SMS-7D-Z26BK5CV:8158bf7da5a1a244,SMS-7D-TGXWV6N6:6e7e3199893a0ad7,SMS-7D-X7J7HM3U:1c59dce5b2340a69,SMS-7D-HHM9DUXP:5b1a6dbfcd5c895b,SMS-7D-Y6AUB4MS:37ab92cd72d89550,SMS-7D-B9ZHCGUJ:54812926191cb06d,SMS-7D-2YJ8QPTW:04d99c21bb3efa43,SMS-7D-3F4MAMXP:0f0661bb5c0ceb7c,SMS-7D-TXF5HS4L:6753c542cbd481a5,SMS-15D-F9FC84AA:a057772eaba0d015,SMS-15D-L2WRSM9F:ca5ce3438f6e45df,SMS-15D-ERBSSTNQ:df0db31d7097d9be,SMS-15D-8246K2PK:e5e62dbd369df5a6,SMS-15D-2RFRF48M:4c9fb13d92fe9ec9,SMS-15D-ZLN9LTKH:eb8cfc11d6b4682c,SMS-15D-5PVHF575:5c807f3ddb27bf8f,SMS-15D-YUQE9HDE:d0ca2036a0f15396,SMS-15D-MEMK2XH7:9d3149a04428ea60,SMS-15D-8VD36RXZ:0ea8a900e72d4ecb,SMS-1M-6NL5KC52:a56b3a9b68bc0c1d,SMS-1M-L8VKAH4X:07ba2d5665e5cd12,SMS-1M-QCZUQZKK:1689ad2c414ed2e1,SMS-1M-WMXQ5V6U:f0f8c4dd3f30845e,SMS-1M-8ATHJGEP:5acad9eb6767a825,SMS-1M-6XWQ3HXH:149fb5d59a7396da,SMS-1M-N5T8YE4E:286e777f67292092,SMS-1M-VPP8KLPT:4ae0673fcb2071c6,SMS-1M-DJAC4H3P:ca691322485e7ed8,SMS-1M-JTWATKTD:d1f88e74ada2c575,SMS-3M-649SYGAY:d21c67caca9edfe6,SMS-3M-RAXZ6JJ7:7c91bb212dd7dabb,SMS-3M-KHKUM9QY:c83a0e3042fd93e3,SMS-3M-CYWWU2R7:02a2e7af6f393634,SMS-3M-4YHHC7WR:945b82535f0b74ef,SMS-3M-JF5HDA9Z:8a73be20e18399a9,SMS-3M-YVDSQSD9:1ef4fc5c68dbdcf4,SMS-3M-EW8KEUH2:83d590d17984a33a,SMS-3M-WNAU8L4E:55573aebf03a6131,SMS-3M-7NT9R3MV:e7dc76c58abacbaa,SMS-6M-5SF2WY2W:752adc5b17642e6e,SMS-6M-YFCKEQEE:07d2e6152ac94c64,SMS-6M-BPDAL5NZ:a0de9de7c79dc0a6,SMS-6M-DMU8T66T:b7a665be9d3d379e,SMS-6M-DVXDUNGX:4e5e03ab8bd21ddc,SMS-6M-XVNYZNHX:bf293756c01f2dbd,SMS-6M-43XRKX83:8831dfc1449e002f,SMS-6M-REFDH7Z6:785821a577e85a86,SMS-6M-RYGQ3AA7:2793ee6dee27baba,SMS-6M-Z46U25SH:1307d4b6a312e61f,SMS-1Y-V7ZSW83N:5030f1f9a6319939,SMS-1Y-YHE7QEYH:53fb0336ea4059e1,SMS-1Y-7Y6ZNA3P:dcd6646447a95756,SMS-1Y-HEW9GMV2:b1a2d260d0957b43,SMS-1Y-28MLA7YT:6f53099c25b280e0,SMS-1Y-PEWFYGBT:ad045a8cda4f5bfe,SMS-1Y-H39XBZPA:fc7937ec7339bf87,SMS-1Y-NYFLWTB9:3751115141429783,SMS-1Y-4VR5ALEJ:ae9c176bd007d9df,SMS-1Y-CCHMJRFW:24010d8cd635c0bd".split(",");
+
+var LIC_KEY = 'sms_helper_lic_v1';
+var LIC_SALT = 'sms-helper-lic-2026';
+var TIER_DAYS = { '1D': 1, '7D': 7, '15D': 15, '1M': 30, '3M': 90, '6M': 180, '1Y': 365 };
+var TIER_LABEL = { '1D': '1天', '7D': '7天', '15D': '15天', '1M': '1个月', '3M': '3个月', '6M': '6个月', '1Y': '1年' };
+var DAY_MS = 86400000;
+var licTimer = null;
+
+function escHtml(s) {
+  return String(s).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+/* 卡号 / 卡密归一化：忽略大小写、空格、横杠、全角等差异，只保留字母数字后还原为标准格式，
+ * 这样用户无论输入 "BA47-KUEP-DJZX-MPKL"、"ba47 kuep djzx mpkl" 还是 "BA47KUEPDJZXMPKL" 都能通过 */
+function normCardNo(v) {
+  var s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  var m = /^SMS(1D|7D|15D|1M|3M|6M|1Y)([A-Z0-9]{8})$/.exec(s);
+  return m ? 'SMS-' + m[1] + '-' + m[2] : s;
+}
+function normKey(v) {
+  var s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (s.length === 16) s = s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8, 12) + '-' + s.slice(12);
+  return s;
+}
+function cardHash(cardNo, key) { return SHA256(cardNo + '|' + key).slice(0, 16); }
+function tierOf(cardNo) {
+  var m = /^SMS-(1D|7D|15D|1M|3M|6M|1Y)-[A-Z0-9]{8}$/.exec(cardNo);
+  return m ? m[1] : null;
+}
+/* 校验卡号 + 卡密，返回时长代码或 null（内部自动归一化输入） */
+function verifyCard(cardNo, key) {
+  cardNo = normCardNo(cardNo);
+  key = normKey(key);
+  var tier = tierOf(cardNo);
+  if (!tier) return null;
+  return CARD_DB.indexOf(cardNo + ':' + cardHash(cardNo, key)) !== -1 ? tier : null;
+}
+function licSig(o) { return SHA256(o.cardNo + '|' + o.activatedAt + '|' + o.days + '|' + LIC_SALT).slice(0, 20); }
+function readLicRaw() {
+  try { return JSON.parse(localStorage.getItem(LIC_KEY) || 'null'); } catch (e) { return null; }
+}
+function saveLic(o) { try { localStorage.setItem(LIC_KEY, JSON.stringify(o)); } catch (e) {} }
+/* 授权状态：ok / reason(none|tampered|clock|expired) */
+function licState() {
+  var o = readLicRaw();
+  if (!o || !o.cardNo || !o.activatedAt || !o.days) return { ok: false, reason: 'none' };
+  if (o.sig !== licSig(o)) return { ok: false, reason: 'tampered' };
+  if (Date.now() < o.activatedAt - 3600000) return { ok: false, reason: 'clock', lic: o };
+  var expireAt = o.activatedAt + o.days * DAY_MS;
+  if (Date.now() >= expireAt) return { ok: false, reason: 'expired', lic: o, expireAt: expireAt };
+  return { ok: true, lic: o, expireAt: expireAt };
+}
+function licOK() { return licState().ok; }
+
+function fmtLeft(ms) {
+  if (ms <= 0) return '已到期';
+  var d = Math.floor(ms / DAY_MS);
+  var h = Math.floor((ms % DAY_MS) / 3600000);
+  var m = Math.floor((ms % 3600000) / 60000);
+  if (d > 0) return d + ' 天 ' + h + ' 小时';
+  if (h > 0) return h + ' 小时 ' + m + ' 分钟';
+  return m + ' 分钟';
+}
+function setGateMsg(msg, ok) {
+  var el = $('gateMsg');
+  if (!el) return;
+  el.className = 'gate-msg' + (ok ? ' ok' : '');
+  el.textContent = msg || '';
+}
+/* 根据授权状态刷新锁屏与授权信息条 */
+function applyLicense() {
+  var st = licState();
+  var gate = $('gate'), bar = $('licBar');
+  if (st.ok) {
+    if (gate) gate.style.display = 'none';
+    if (bar) {
+      var left = st.expireAt - Date.now();
+      bar.style.display = 'block';
+      bar.className = 'lic-bar' + (left < 3 * DAY_MS ? ' warn' : '');
+      bar.innerHTML = '授权卡号：<b>' + escHtml(st.lic.cardNo) + '</b>（' + (TIER_LABEL[st.lic.tier] || st.lic.days + ' 天') +
+        '）　剩余：<b>' + fmtLeft(left) + '</b><br>到期时间：' + new Date(st.expireAt).toLocaleString();
+    }
+    if (!licTimer) licTimer = setInterval(licenseTick, 30000);
+  } else {
+    if (bar) bar.style.display = 'none';
+    if (gate) {
+      gate.style.display = 'flex';
+      if (st.reason === 'expired') {
+        setGateMsg('该卡密已于 ' + new Date(st.expireAt).toLocaleString() + ' 到期，请更换新卡密。');
+      } else if (st.reason === 'tampered') {
+        setGateMsg('授权记录校验失败，请重新输入卡号与卡密。');
+      } else if (st.reason === 'clock') {
+        setGateMsg('检测到系统时间异常（被回拨），请把手机时间校准后再试。');
+      } else {
+        setGateMsg('请输入卡号与卡密后激活。');
+      }
+    }
+  }
+}
+/* 定时复核：运行中若授权失效则立刻停止任务 */
+function licenseTick() {
+  var st = licState();
+  if (!st.ok && isRun) {
+    isRun = false;
+    awaitingReturn = false;
+    iosPending = null;
+    stopResumeTimer();
+    if ($('iosOpenBtn')) $('iosOpenBtn').disabled = true;
+    saveState();
+  }
+  applyLicense();
+}
+function doActivate() {
+  var cardNo = normCardNo($('cardNoInput').value);
+  var key = normKey($('cardKeyInput').value);
+  if (!cardNo || !key) { setGateMsg('请把卡号与卡密都填写完整。'); return; }
+  var tier = verifyCard(cardNo, key);
+  if (!tier) { setGateMsg('卡号或卡密不正确，请核对后重试（注意区分字母大小写已自动转换）。'); return; }
+
+  /* 同一张卡重复激活时沿用首次激活时间，避免“重新输入即重置计时” */
+  var prev = readLicRaw();
+  var activatedAt = (prev && prev.cardNo === cardNo && prev.activatedAt) ? prev.activatedAt : Date.now();
+  var days = TIER_DAYS[tier];
+  var rec = { cardNo: cardNo, tier: tier, days: days, activatedAt: activatedAt };
+  rec.sig = licSig(rec);
+  saveLic(rec);
+
+  if (Date.now() >= activatedAt + days * DAY_MS) {
+    setGateMsg('该卡密已到期（' + TIER_LABEL[tier] + '），请更换新卡密。');
+    applyLicense();
+    return;
+  }
+  setGateMsg('验证成功，已开通 ' + TIER_LABEL[tier] + ' 授权。', true);
+  applyLicense();
+}
+
 /* ---------------- 按钮 ---------------- */
 $('startBtn').addEventListener('click', function () {
+  if (!licOK()) { alert('授权无效或已过期，请先输入卡号与卡密。'); applyLicense(); return; }
   if (!header.length || phoneIdx === -1) { alert('请先上传包含【手机号】列的表格'); return; }
   var checked = Array.prototype.slice.call(document.querySelectorAll('.rowCheck:checked'));
   if (!checked.length) { alert('请勾选至少1个联系人'); return; }
@@ -569,6 +802,15 @@ function restoreState() {
 
   if (!isRun) return;
 
+  /* 授权无效/过期时不允许自动续跑（防止锁屏期间偷偷继续跳短信） */
+  if (!licOK()) {
+    isRun = false;
+    awaitingReturn = false;
+    iosPending = null;
+    saveState();
+    return;
+  }
+
   if (!queue.length) { isRun = false; saveState(); return; }
 
   if (mode === 'ios') {
@@ -612,6 +854,14 @@ restoreState();
 if (typeof XLSX === 'undefined') {
   setTip('注意：表格组件未加载成功，上传/导出将不可用，请联网后刷新页面', true);
 }
+
+/* ---------------- 卡密锁屏初始化 ---------------- */
+$('activateBtn').addEventListener('click', doActivate);
+function gateKeydown(e) { if (e.key === 'Enter' || e.keyCode === 13) doActivate(); }
+$('cardNoInput').addEventListener('keydown', gateKeydown);
+$('cardKeyInput').addEventListener('keydown', gateKeydown);
+/* 首次进入即校验授权：未授权则保持锁屏，已授权则隐藏锁屏并显示剩余时长 */
+applyLicense();
 </script>
 </body>
 </html>
