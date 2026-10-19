@@ -100,6 +100,8 @@ var lastNavAt = 0;      // 上次跳转时间，防止重载时重复触发
 var resumeTimer = null; // 续跑调度定时器
 var sentPhones = {};    // 已发送号码表：{归一化号码: 首次唤起时间}，发过的号码绝不重复发送
 var runTotal = 0;       // 本次任务开始时的队列长度（用于进度显示）
+var runSent = 0;        // 本次任务**实际已唤起**的条数（只加不减，保证计数准确不回退）
+var retryCount = 0;     // 当前这条号码“唤起失败”的重试次数
 var smsIntentAt = 0;    // 最近一次检测到“已唤起短信/页面失去焦点”的时间，用于避免重复触发授权弹窗
 
 /* ---------------- 平台识别 ----------------
@@ -119,7 +121,8 @@ var isInApp = /MicroMessenger|MQQBrowser|QQBrowser|\bQQ\/|DingTalk|AlipayClient|
 
 var STORE_KEY = 'sms_helper_state_v1';
 var FOLLOW_UP_MS = 800;   // 跳转后最小防抖间隔（毫秒）
-var NAV_FALLBACK_MS = 3000; // 一直没唤起短信时的兜底续跑时间（需大于 iframe 兜底的 1.5s）
+var NAV_FALLBACK_MS = 3000; // 一直没唤起短信时的兜底检查时间（需大于 iframe 兜底的 1.5s）
+var MAX_RETRY = 2;        // 一条号码完全唤不起短信时的最大重试次数（重试不计入日志、不重复计数）
 var MAX_PHONES = 4000;    // 表格号码上限：一次最多读取 4000 条电话，超出部分自动截断
 
 function $(id) { return document.getElementById(id); }
@@ -134,6 +137,14 @@ function nowStr() {
 }
 
 function escapeReg(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/* HTML 转义：表格单元格内容会原样拼进 innerHTML，
+ * 若单元格里含 <script> / <img onerror> 等会形成注入（XSS）。统一转义后再渲染。 */
+function escHtml(s) {
+  return String(s === undefined || s === null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 /* 模板变量替换：{姓名} -> 对应列的值 */
 function getMsg(row) {
@@ -255,16 +266,25 @@ function pushLog(phone, msg) {
 }
 
 /* ---------------- 状态持久化（保证跳转/重载后能续跑） ---------------- */
+var stateWarned = false;   // 持久化失败只提示一次，避免刷屏
 function saveState() {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify({
       header: header, tableData: tableData, queue: queue,
       currentIndex: currentIndex, sendLog: sendLog,
       isRun: isRun, awaitingReturn: awaitingReturn, iosPending: iosPending,
-      sentPhones: sentPhones, runTotal: runTotal,
+      sentPhones: sentPhones, runTotal: runTotal, runSent: runSent,
       template: $('template').value
     }));
-  } catch (e) { /* 隐私模式下可能不可用，忽略 */ }
+    stateWarned = false;
+  } catch (e) {
+    /* 隐私模式 / 存储已满 / 存储被禁用：此时页面一旦被系统回收，
+     * “已发送号码”会丢失，可能出现重发。必须明确提示用户。 */
+    if (!stateWarned) {
+      stateWarned = true;
+      setTip('⚠️ 本机无法保存进度（隐私模式或存储已满），页面若被系统回收可能导致重复发送。请勿关闭页面，并尽快导出记录。', true);
+    }
+  }
 }
 
 /* ---------------- 表格渲染 ---------------- */
@@ -272,13 +292,12 @@ function renderTable() {
   var box = $('tableBox');
   if (!header.length) { box.innerHTML = ''; return; }
   var html = "<table><thead><tr><th class='check-cell'><input type='checkbox' id='mainCheck'></th>";
-  header.forEach(function (h) { html += '<th>' + h + '</th>'; });
+  header.forEach(function (h) { html += '<th>' + escHtml(h) + '</th>'; });
   html += '</tr></thead><tbody>';
   tableData.forEach(function (row, idx) {
     html += "<tr><td class='check-cell'><input type='checkbox' class='rowCheck' data-idx='" + idx + "'></td>";
     header.forEach(function (h, i) {
-      var v = row[i];
-      html += '<td>' + ((v === undefined || v === null) ? '' : v) + '</td>';
+      html += '<td>' + escHtml(row[i]) + '</td>';
     });
     html += '</tr>';
   });
@@ -300,9 +319,10 @@ function markQueueChecks() {
 function updateProgress() {
   var checkedCount = document.querySelectorAll('.rowCheck:checked').length;
   if (isRun) {
-    /* 队列会随着“发一条删一条”不断变短，用任务开始时的总数算进度，计数不会回退 */
-    var total = Math.max(runTotal, queue.length);
-    $('progress').textContent = (total - queue.length) + '/' + total;
+    /* 用 runSent（实际已唤起条数）算进度：
+     * 只加不减，队列因去重删除多条时也不会跳号，更不会出现“发了却不计数”。 */
+    var total = Math.max(runTotal, queue.length, runSent);
+    $('progress').textContent = runSent + '/' + total;
   } else {
     $('progress').textContent = '0/' + checkedCount;
   }
@@ -370,7 +390,7 @@ $('fileInput').addEventListener('change', function (e) {
 
       /* 新文件 = 新任务，重置队列与进度（保留历史发送记录便于对账） */
       queue = []; currentIndex = 0; isRun = false; awaitingReturn = false; iosPending = null;
-      runTotal = 0;
+      runTotal = 0; runSent = 0; retryCount = 0;
       stopResumeTimer();
       $('iosOpenBtn').disabled = true;
       renderTable();
@@ -447,6 +467,8 @@ function processNext() {
 
   stepId++;
   var myStep = stepId;
+  runSent++;            // 计数：只有真正唤起一条才 +1，保证括号里的进度与实际一致
+  retryCount = 0;
   updateProgress();
 
   awaitingReturn = true;
@@ -455,13 +477,30 @@ function processNext() {
 
   lastNavAt = Date.now();
   openSms(buildSmsUrl(it.phone, it.msg));
+  armNavFallback(myStep, it);
+}
 
-  /* 兜底：只有“完全没唤起短信”（页面始终可见、且从未失焦/切走）才自动跳下一条，避免任务卡死；
-   * 一旦检测到唤起（弹窗 / 已切到短信），就安心等用户返回，绝不重复跳转。 */
+/* 兜底巡检：一条号码唤起后，若一段时间内页面始终可见、也没有任何“已唤起”迹象，
+ * 说明短信根本没被拉起来（浏览器拦截 / 无短信应用）。
+ * 此时先**重试唤起同一条**（重试不写日志、不重复计数），
+ * 重试 MAX_RETRY 次仍无效才跳过，避免任务卡死，也避免把号码误标为已发送。 */
+function armNavFallback(myStep, it) {
   setTimeout(function () {
     if (stepId !== myStep) return;                 // 已被后续步骤推进，忽略
     if (!isRun || !awaitingReturn) return;
-    if (document.hidden || smsIntentAt) return;    // 已唤起过，等用户返回
+    if (document.hidden || smsIntentAt) return;    // 已唤起过，安心等用户返回，绝不重复跳转
+
+    if (retryCount < MAX_RETRY) {
+      retryCount++;
+      lastNavAt = Date.now();
+      saveState();
+      openSms(buildSmsUrl(it.phone, it.msg));
+      armNavFallback(myStep, it);
+      return;
+    }
+
+    /* 彻底唤起不了：跳过本条继续下一条（本条已计数，不会重复发送） */
+    retryCount = 0;
     awaitingReturn = false;
     saveState();
     processNext();
@@ -518,6 +557,7 @@ function confirmIOSPending() {
   markSent(iosPending.phone);
   iosPending = null;
   if (currentIndex < queue.length) queue.splice(currentIndex, 1);   // 发一条删一条
+  runSent++;
   updateProgress();
   $('iosOpenBtn').disabled = false;
   saveState();
@@ -601,12 +641,25 @@ function handleVisible() {
 document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
-/* 窗口失去焦点（弹出“允许打开信息”确认框 / 切到短信 App）也算已唤起 */
-window.addEventListener('blur', function () { smsIntentAt = Date.now(); });
+/* 窗口失去焦点（弹出“允许打开信息”确认框 / 切到短信 App）也算已唤起。
+ * 仅在“正在等待返回”时才记账，避免用户点地址栏等偶然失焦被误当成已唤起而跳过号码。 */
+window.addEventListener('blur', function () {
+  if (!isRun || !awaitingReturn) return;
+  smsIntentAt = Date.now();
+});
+/* 页面被系统回收 / 切走前再存一次状态，尽量减少“重载后状态过旧”导致的重复发送 */
+window.addEventListener('pagehide', function () { if (isRun || awaitingReturn) saveState(); });
 
 /* ---------------- 按钮 ---------------- */
 $('startBtn').addEventListener('click', function () {
   if (!header.length || phoneIdx === -1) { alert('请先上传包含【手机号】列的表格'); return; }
+  /* 防止重复点击「开始」导致队列被重建、同一条被唤起两次 */
+  if (isRun) {
+    if (!confirm('任务正在运行中，确定要重新开始吗？\n重新开始会按当前勾选重新排队（已发送过的号码仍会自动跳过）。')) return;
+    isRun = false;
+    awaitingReturn = false;
+    stopResumeTimer();
+  }
   var checked = Array.prototype.slice.call(document.querySelectorAll('.rowCheck:checked'));
   if (!checked.length) { alert('请勾选至少1个联系人'); return; }
 
@@ -637,11 +690,12 @@ $('startBtn').addEventListener('click', function () {
   setTip('本次将发送 ' + queue.length + ' 条' + (note.length ? '；已自动跳过：' + note.join('、') : ''));
 
   runTotal = queue.length;
+  runSent = 0;
+  retryCount = 0;
   currentIndex = 0;
   isRun = true;
   awaitingReturn = false;
   iosPending = null;
-  stepId = 0;
   lastNavAt = 0;
   stopResumeTimer();
   updateProgress();
@@ -683,7 +737,7 @@ $('stopBtn').addEventListener('click', function () {
   iosPending = null;
   stopResumeTimer();
   $('iosOpenBtn').disabled = true;
-  $('currentPhoneInfo').textContent = '任务已停止（已唤起 ' + currentIndex + ' 条）';
+  $('currentPhoneInfo').textContent = '任务已停止（已唤起 ' + runSent + ' 条）';
   updateProgress();
   saveState();
 });
@@ -722,16 +776,20 @@ function restoreState() {
     (st.sendLog || []).forEach(function (r) { markSent(r['手机号']); });
   }
   runTotal = st.runTotal || queue.length;
+  runSent = st.runSent || 0;
+  retryCount = 0;
   phoneIdx = header.indexOf('手机号');
   if (typeof st.template === 'string') $('template').value = st.template;
 
-  /* 把队列里已经发送过的号码直接剔除，恢复后不可能再发给同一个人 */
+  /* 队列清洗：把“已发送过的号码”和“重复号码”从队列里彻底剔除，
+   * 恢复后不可能再发给同一个人；空号码也一并丢掉。 */
   var kept = 0;
+  var seenKeys = {};
   for (var i = queue.length - 1; i >= 0; i--) {
-    if (i >= currentIndex && alreadySent(phoneOfRow(queue[i].rowIdx))) {
-      queue.splice(i, 1);
-      kept++;
-    }
+    if (i < currentIndex) continue;
+    var key = normPhone(phoneOfRow(queue[i].rowIdx));
+    if (!key || seenKeys[key] || alreadySent(key)) { queue.splice(i, 1); kept++; continue; }
+    seenKeys[key] = true;
   }
   if (currentIndex > queue.length) currentIndex = queue.length;
   saveState();   // 把剔除后的队列与已发送记录写回，保证下次加载状态一致
