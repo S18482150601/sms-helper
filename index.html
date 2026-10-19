@@ -99,6 +99,7 @@ var lastNavAt = 0;      // 上次跳转时间，防止重载时重复触发
 var resumeTimer = null; // 续跑调度定时器
 var sentPhones = {};    // 已发送号码表：{归一化号码: 首次唤起时间}，发过的号码绝不重复发送
 var runTotal = 0;       // 本次任务开始时的队列长度（用于进度显示）
+var smsIntentAt = 0;    // 最近一次检测到“已唤起短信/页面失去焦点”的时间，用于避免重复触发授权弹窗
 
 /* ---------------- 平台识别 ----------------
  * iOS 与 Android 的 sms: 协议格式不同：
@@ -117,7 +118,7 @@ var isInApp = /MicroMessenger|MQQBrowser|QQBrowser|\bQQ\/|DingTalk|AlipayClient|
 
 var STORE_KEY = 'sms_helper_state_v1';
 var FOLLOW_UP_MS = 800;   // 跳转后最小防抖间隔（毫秒）
-var NAV_FALLBACK_MS = 1200; // 短信应用未拉起的兜底续跑时间
+var NAV_FALLBACK_MS = 3000; // 一直没唤起短信时的兜底续跑时间（需大于 iframe 兜底的 1.5s）
 var MAX_PHONES = 4000;    // 表格号码上限：一次最多读取 4000 条电话，超出部分自动截断
 
 function $(id) { return document.getElementById(id); }
@@ -173,14 +174,29 @@ function openSms(url) {
     } catch (e) { /* 回退到 location.href */ }
   }
 
-  /* Android / 通用浏览器：只做一次顶层跳转。
-   * 为什么不用隐藏 iframe 唤起？
-   *   1) 多数安卓浏览器会拦截 iframe 对内外部协议的跳转，短信根本没被打开；
-   *   2) 之前“iframe 唤起 + 兜底 window.location.href”会让一条短信触发两次
-   *      系统「允许打开『信息』」确认，用户感觉“一直需要授权”。
-   * 顶层跳转只弹一次确认；跳转时主页面不会被卸载，关闭短信后回到浏览器
-   * 即可自动接着发下一条（任务状态已持久化，页面被系统回收也能续跑）。 */
-  window.location.href = url;
+  /* Android / 通用浏览器：用隐藏 iframe 唤起短信，主页面**不被导航**。
+   * 为什么用 iframe 而不是顶层跳转？
+   *   顶层跳转 window.location.href = 'sms:...' 会把当前标签页“导航走”，
+   *   发完短信切回浏览器时页面往往已被卸载/变成空白页，导致**只跳到第 1 条就断了**。
+   *   用隐藏 iframe 唤起时主页面一直留在浏览器里，关闭短信 App 后浏览器自动回到前台，
+   *   visibilitychange/focus 立即触发，自动接上下一条，实现“你只管点发送、其余全自动”。
+   * 关于“一直需要授权”：只要保证一条短信只触发**一次**跳转即可（弹一次确认框）。
+   *   这里先用 iframe；仅当 1.5s 内完全没检测到唤起（无失焦、页面仍可见）时，
+   *   才补一次顶层跳转兜底——此时并没有任何弹窗，所以不会造成“两次授权”。 */
+  var ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  ifr.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(ifr);
+  ifr.src = url;
+  setTimeout(function () { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 4000);
+
+  /* 兜底：iframe 被浏览器拦截（短信没打开）时，补一次顶层跳转；已唤起过则跳过 */
+  setTimeout(function () {
+    if (smsIntentAt) return;                          // 已经弹过确认框 / 切到过短信，不再补跳
+    if (!isRun || !awaitingReturn) return;
+    if (document.hidden) return;
+    window.location.href = url;
+  }, 1500);
 }
 
 /* ---------------- 号码判重（核心：发过的号码不再重复发送） ---------------- */
@@ -425,19 +441,21 @@ function processNext() {
   updateProgress();
 
   awaitingReturn = true;
+  smsIntentAt = 0;
   saveState();
 
   lastNavAt = Date.now();
   openSms(buildSmsUrl(it.phone, it.msg));
 
-  /* 兜底：若短信应用未拉起到前台（页面仍可见），继续下一条，避免任务卡死 */
+  /* 兜底：只有“完全没唤起短信”（页面始终可见、且从未失焦/切走）才自动跳下一条，避免任务卡死；
+   * 一旦检测到唤起（弹窗 / 已切到短信），就安心等用户返回，绝不重复跳转。 */
   setTimeout(function () {
     if (stepId !== myStep) return;                 // 已被后续步骤推进，忽略
-    if (isRun && awaitingReturn && !document.hidden) {
-      awaitingReturn = false;
-      saveState();
-      processNext();
-    }
+    if (!isRun || !awaitingReturn) return;
+    if (document.hidden || smsIntentAt) return;    // 已唤起过，等用户返回
+    awaitingReturn = false;
+    saveState();
+    processNext();
   }, NAV_FALLBACK_MS);
 }
 
@@ -530,18 +548,26 @@ function scheduleResume() {
 }
 
 function handleVisible() {
+  if (document.visibilityState === 'hidden') {
+    /* 切到后台 = 短信 App 已在前台：记录“已唤起”，避免再补跳一次造成重复授权 */
+    smsIntentAt = Date.now();
+    return;
+  }
   if (document.visibilityState !== 'visible') return;
   if (mode === 'ios') {
     /* iOS：返回浏览器即确认上一条已唤起，立刻切到下一条（0 等待） */
     if (isRun && iosPending) confirmIOSPending();
     return;
   }
+  /* 回到浏览器：立刻自动接上下一条 */
   scheduleResume();
 }
 
 document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
+/* 窗口失去焦点（弹出“允许打开信息”确认框 / 切到短信 App）也算已唤起 */
+window.addEventListener('blur', function () { smsIntentAt = Date.now(); });
 
 /* ---------------- 按钮 ---------------- */
 $('startBtn').addEventListener('click', function () {
