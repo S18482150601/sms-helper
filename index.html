@@ -201,10 +201,13 @@ function openSms(url) {
 }
 
 /* ---------------- 号码判重（核心：发过的号码不再重复发送） ---------------- */
-/* 归一化：去掉空格/横杠/括号/字母，并把 +86 / 86 前缀统一掉，避免同一号码因写法不同被判为新号码 */
+/* 归一化：去掉空格/横杠/括号/字母，并统一掉国际/国内前缀，
+ * 避免同一个号码因写法不同（+86 / 86 / 0086 / 前导 0）被判成两个号码而重复发送 */
 function normPhone(p) {
   var s = String(p === undefined || p === null ? '' : p).replace(/[^0-9]/g, '');
-  if (s.length > 11 && s.slice(0, 2) === '86') s = s.slice(2);
+  if (s.indexOf('0086') === 0 && s.length > 13) s = s.slice(4);        // 0086 国际前缀
+  else if (s.indexOf('86') === 0 && s.length > 11) s = s.slice(2);     // 86 国际前缀
+  if (s.length === 12 && s.charAt(0) === '0' && s.charAt(1) === '1') s = s.slice(1); // 前导 0
   return s;
 }
 function phoneOfRow(idx) {
@@ -437,6 +440,11 @@ function processNext() {
   markSent(it.phone);
   queue.splice(currentIndex, 1);
 
+  /* 发一条删一条的加强版：把队列里“归一化后与当前号码相同”的其它条目一并删除，
+   * 从根上杜绝同一个号码从队列另一条记录里被再发一次。 */
+  var curKey = normPhone(it.phone);
+  queue = queue.filter(function (q) { return normPhone(phoneOfRow(q.rowIdx)) !== curKey; });
+
   stepId++;
   var myStep = stepId;
   updateProgress();
@@ -533,33 +541,44 @@ function stopResumeTimer() {
   if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null; }
 }
 
-function resumeNow() {
+/* 是否满足“续跑下一条”的条件：
+ *   任务在跑 + 正在等返回 + 本轮确实检测到过“短信被打开”（smsIntentAt 不早于本次打开时刻）。
+ * 这样可避免只触发了 focus / 定时器、但短信其实没打开时误往前跳，杜绝漏计与跳号。 */
+function canResume() {
+  return isRun && awaitingReturn && smsIntentAt && smsIntentAt >= lastNavAt;
+}
+
+function resumeNow(force) {
   if (!isRun || !awaitingReturn) return;
+  if (!force && !canResume()) return;
   stopResumeTimer();
-  awaitingReturn = false;
+  awaitingReturn = false;   // 先置位，防止 focus + 看门狗 + 定时器同时触发时重复推进
   saveState();
   processNext();
 }
 
 function scheduleResume() {
-  if (!isRun || !awaitingReturn) return;
+  if (!canResume()) return;
   if (resumeTimer) return;
   var elapsed = Date.now() - lastNavAt;
   var wait = Math.max(0, FOLLOW_UP_MS - elapsed);
   resumeTimer = setTimeout(function () {
     resumeTimer = null;
-    if (isRun && awaitingReturn) resumeNow();
+    if (canResume()) resumeNow();
   }, wait);
 }
 
-/* 看门狗：部分安卓浏览器从短信 App 返回前台时不一定触发 visibilitychange / focus，
- * 这里每 700ms 主动自检一次——只要「已唤起过短信」且「页面已回到前台」，就自动接续下一条。
- * 这样即使事件没触发，也能连续自动跳转，无需任何手动操作。 */
+/* 看门狗：完全不依赖 visibilitychange / focus 事件，
+ * 每 700ms 主动轮询一次页面可见性——先观察到“页面切到后台”（说明短信 App 已打开），
+ * 再观察到“回到前台”就自动接续下一条。这样即使浏览器不发事件也能连续自动跳转。 */
 setInterval(function () {
   if (!isRun || !awaitingReturn) return;
-  if (document.hidden) return;                   // 仍在短信 App / 后台
-  if (!smsIntentAt) return;                      // 尚未真正唤起过短信
-  if (Date.now() - smsIntentAt < 1500) return;   // 刚回到前台，稍等片刻，避免误判
+  if (document.hidden) {                          // 已切到后台 → 认定本轮短信 App 已打开
+    if (!smsIntentAt || smsIntentAt < lastNavAt) smsIntentAt = Date.now();
+    return;
+  }
+  if (!canResume()) return;                       // 还没打开过短信，交给兜底逻辑
+  if (Date.now() - smsIntentAt < 1500) return;    // 刚回到前台，稍等片刻
   resumeNow();
 }, 700);
 
@@ -654,7 +673,7 @@ $('iosOpenBtn').addEventListener('click', iosOpenCurrent);
 $('manualNextBtn').addEventListener('click', function () {
   if (!isRun) { alert('请先点击“开始无间隔批量唤起”'); return; }
   if (!awaitingReturn) { alert('当前不在等待返回状态，无需手动接续'); return; }
-  resumeNow();
+  resumeNow(true);   // 强制接续，不受自动续跑条件限制
 });
 
 $('stopBtn').addEventListener('click', function () {
@@ -738,7 +757,8 @@ function restoreState() {
     }
   } else {
     lastNavAt = 0;
-    scheduleResume();      // 立刻续跑下一条
+    smsIntentAt = Date.now();  // 页面是在跳转途中被重载的，视为本轮短信已唤起过，直接续跑下一条
+    scheduleResume();
   }
 }
 
