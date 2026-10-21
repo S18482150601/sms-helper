@@ -437,10 +437,11 @@ function closeModal(id) {
 function saveContact() {
   const name = document.getElementById('fName').value.trim();
   const phone = document.getElementById('fPhone').value.trim();
-  const wechat = document.getElementById('fWechat').value.trim();
+  let wechat = document.getElementById('fWechat').value.trim();
   const note = document.getElementById('fNote').value.trim();
   if (!name) { alert('请填写姓名'); return; }
   if (!/^1\d{10}$/.test(phone)) { alert('请填写正确的11位手机号'); return; }
+  if (!wechat) wechat = phone; // 微信号未填写时默认使用手机号
 
   const list = load();
   if (editingId) {
@@ -652,7 +653,7 @@ function doParse() {
     const r = raw[i];
     const name = (r[colMap.name] || '').trim();
     const phone = cleanPhone(r[colMap.phone]);
-    const wechat = (r[colMap.wechat] || '').trim();
+    const wechat = (r[colMap.wechat] || '').trim() || phone; // 导入时微信为空则默认用手机号
     const note = (r[colMap.note] || '').trim();
     const wxCell = escapeHtml(wechat) || '<span style="color:#bdc3c7">-</span>';
 
