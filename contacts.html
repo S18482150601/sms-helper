@@ -100,6 +100,7 @@
   }
   .call-btn { background: #27ae60; }
   .sms-btn { background: #3498db; }
+  .wx-btn { background: #07c160; }
   .del-btn { background: #e74c3c; width: 28px; height: 28px; font-size: 12px; }
 
   .empty {
@@ -208,11 +209,12 @@
 </div>
 
 <div class="toolbar">
-  <input type="text" class="search-box" id="searchInput" placeholder="搜索姓名 / 电话 / 备注...">
+  <input type="text" class="search-box" id="searchInput" placeholder="搜索姓名 / 电话 / 微信 / 备注...">
   <button class="btn btn-primary" onclick="openAddModal()">+ 添加</button>
   <button class="btn btn-success" onclick="openImportModal()">批量导入</button>
   <button class="btn btn-warn" onclick="openTemplateModal()">短信模板</button>
   <button class="btn" style="background:#95a5a6;color:#fff" onclick="exportCSV()">导出</button>
+  <button class="btn btn-danger" onclick="clearAllContacts()">清空联系人</button>
 </div>
 
 <div class="stats" id="stats"></div>
@@ -223,8 +225,9 @@
       <tr>
         <th>姓名</th>
         <th>电话</th>
+        <th>微信</th>
         <th>备注</th>
-        <th style="width:120px">操作</th>
+        <th style="width:150px">操作</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -243,6 +246,10 @@
     <div class="form-group">
       <label>手机号</label>
       <input type="tel" id="fPhone" placeholder="11位手机号" maxlength="11">
+    </div>
+    <div class="form-group">
+      <label>微信号（选填，用于一键添加微信）</label>
+      <input type="text" id="fWechat" placeholder="如：wxid_xxx 或微信昵称">
     </div>
     <div class="form-group">
       <label>备注（选填）</label>
@@ -282,14 +289,14 @@
 
     <div id="panePaste">
       <div class="form-group">
-        <label>从 Excel 选中区域 → 复制 → 粘贴到这里（列顺序：姓名、电话、备注）</label>
-        <textarea id="fPaste" style="min-height:140px;font-family:monospace;font-size:12px" placeholder="张三&#9;13800138000&#9;企业贷&#10;李四&#9;13912345678&#9;房贷"></textarea>
+        <label>从 Excel 选中区域 → 复制 → 粘贴到这里（列顺序：姓名、电话、微信、备注）</label>
+        <textarea id="fPaste" style="min-height:140px;font-family:monospace;font-size:12px" placeholder="张三&#9;13800138000&#9;zhangsan001&#9;企业贷&#10;李四&#9;13912345678&#9;lisi88&#9;房贷"></textarea>
       </div>
     </div>
 
     <div id="paneFile" style="display:none">
       <div class="form-group">
-        <label>选择 CSV 文件（UTF-8 编码，列顺序：姓名,电话,备注）</label>
+        <label>选择 CSV 文件（UTF-8 编码，列顺序：姓名,电话,微信,备注）</label>
         <input type="file" id="fFile" accept=".csv,text/csv" onchange="onFileChange(event)">
       </div>
     </div>
@@ -302,7 +309,7 @@
       <div id="parseSummary" style="font-size:13px;margin-bottom:8px;padding:8px;background:#f8f9fb;border-radius:6px"></div>
       <div style="max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
         <table style="width:100%;font-size:12px">
-          <thead><tr><th>姓名</th><th>电话</th><th>备注</th><th>状态</th></tr></thead>
+          <thead><tr><th>姓名</th><th>电话</th><th>微信</th><th>备注</th><th>状态</th></tr></thead>
           <tbody id="parsePreview"></tbody>
         </table>
       </div>
@@ -340,6 +347,7 @@ function render(filter) {
     list = list.filter(c =>
       (c.name||'').toLowerCase().includes(f) ||
       (c.phone||'').includes(f) ||
+      (c.wechat||'').toLowerCase().includes(f) ||
       (c.note||'').toLowerCase().includes(f)
     );
   }
@@ -357,10 +365,12 @@ function render(filter) {
     <tr>
       <td class="name">${escapeHtml(c.name)}</td>
       <td class="phone">${escapeHtml(c.phone)}</td>
+      <td class="note">${escapeHtml(c.wechat||'')}</td>
       <td class="note">${escapeHtml(c.note||'')}</td>
       <td class="action-cell">
         <a class="call-btn" href="tel:${c.phone}" title="拨打电话">📞</a>
         <a class="sms-btn" href="sms:${c.phone}${tpl ? '?body='+tpl : ''}" title="发送短信">✉️</a>
+        <a class="wx-btn" href="javascript:void(0)" onclick="copyWechat(${JSON.stringify(c.wechat||'')}, event)" title="复制微信号">💬</a>
         <button class="btn btn-sm del-btn" onclick="delContact('${c.id}')" title="删除">✕</button>
       </td>
     </tr>
@@ -381,11 +391,13 @@ function openAddModal(id) {
     if (c) {
       document.getElementById('fName').value = c.name || '';
       document.getElementById('fPhone').value = c.phone || '';
+      document.getElementById('fWechat').value = c.wechat || '';
       document.getElementById('fNote').value = c.note || '';
     }
   } else {
     document.getElementById('fName').value = '';
     document.getElementById('fPhone').value = '';
+    document.getElementById('fWechat').value = '';
     document.getElementById('fNote').value = '';
   }
   document.getElementById('addModal').classList.add('show');
@@ -403,6 +415,7 @@ function closeModal(id) {
 function saveContact() {
   const name = document.getElementById('fName').value.trim();
   const phone = document.getElementById('fPhone').value.trim();
+  const wechat = document.getElementById('fWechat').value.trim();
   const note = document.getElementById('fNote').value.trim();
   if (!name) { alert('请填写姓名'); return; }
   if (!/^1\d{10}$/.test(phone)) { alert('请填写正确的11位手机号'); return; }
@@ -410,9 +423,9 @@ function saveContact() {
   const list = load();
   if (editingId) {
     const idx = list.findIndex(x => x.id === editingId);
-    if (idx >= 0) list[idx] = { ...list[idx], name, phone, note };
+    if (idx >= 0) list[idx] = { ...list[idx], name, phone, wechat, note };
   } else {
-    list.push({ id: 'c_' + Date.now(), name, phone, note });
+    list.push({ id: 'c_' + Date.now(), name, phone, wechat, note });
   }
   save(list);
   closeModal('addModal');
@@ -423,6 +436,44 @@ function delContact(id) {
   if (!confirm('确定删除这位联系人？')) return;
   save(load().filter(x => x.id !== id));
   render(document.getElementById('searchInput').value);
+}
+
+function copyWechat(wx, e) {
+  if (e) e.preventDefault();
+  if (!wx) { alert('该联系人未填写微信号'); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(wx).then(() => {
+      alert('已复制微信号：' + wx + '\n请打开微信 → 添加朋友 → 粘贴搜索');
+    }).catch(() => {
+      fallbackCopy(wx);
+    });
+  } else {
+    fallbackCopy(wx);
+  }
+}
+
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    alert('已复制微信号：' + text + '\n请打开微信 → 添加朋友 → 粘贴搜索');
+  } catch (err) {
+    alert('复制失败，请手动复制微信号：' + text);
+  }
+  document.body.removeChild(ta);
+}
+
+function clearAllContacts() {
+  if (load().length === 0) { alert('当前没有联系人'); return; }
+  if (!confirm('⚠️ 确定清空所有联系人？\n此操作不可恢复，建议先导出备份。')) return;
+  localStorage.removeItem(STORE_KEY);
+  render('');
+  alert('已清空所有联系人');
 }
 
 function saveTemplate() {
@@ -511,11 +562,12 @@ function doParse() {
   if (raw.length === 0) { alert('未解析到数据'); return; }
 
   let startIdx = 0;
-  let colMap = { name: 0, phone: 1, note: 2 };
+  let colMap = { name: 0, phone: 1, wechat: 2, note: 3 };
   const firstRow = raw[0].map(c => c.trim().toLowerCase());
   const hasHeader = firstRow.some(c =>
     c.includes('姓名') || c.includes('name') ||
     c.includes('电话') || c.includes('手机') || c.includes('phone') ||
+    c.includes('微信') || c.includes('wechat') || c.includes('weixin') ||
     c.includes('备注') || c.includes('note') || c.includes('remark')
   );
   if (hasHeader) {
@@ -523,6 +575,7 @@ function doParse() {
     firstRow.forEach((c, i) => {
       if (c.includes('姓名') || c.includes('name')) colMap.name = i;
       else if (c.includes('电话') || c.includes('手机') || c.includes('phone')) colMap.phone = i;
+      else if (c.includes('微信') || c.includes('wechat') || c.includes('weixin')) colMap.wechat = i;
       else if (c.includes('备注') || c.includes('note') || c.includes('remark')) colMap.note = i;
     });
   }
@@ -537,26 +590,28 @@ function doParse() {
     const r = raw[i];
     const name = (r[colMap.name] || '').trim();
     const phone = cleanPhone(r[colMap.phone]);
+    const wechat = (r[colMap.wechat] || '').trim();
     const note = (r[colMap.note] || '').trim();
+    const wxCell = escapeHtml(wechat) || '<span style="color:#bdc3c7">-</span>';
 
     if (!name || !/^1\d{10}$/.test(phone)) {
       skipInvalid++;
-      previewHtml.push(`<tr><td>${escapeHtml(name)||'-'}</td><td>${escapeHtml(phone)||'-'}</td><td>${escapeHtml(note)}</td><td class="row-skip">无效</td></tr>`);
+      previewHtml.push(`<tr><td>${escapeHtml(name)||'-'}</td><td>${escapeHtml(phone)||'-'}</td><td>${wxCell}</td><td>${escapeHtml(note)}</td><td class="row-skip">无效</td></tr>`);
       continue;
     }
     if (existingPhones.has(phone)) {
       skipDupExisting++;
-      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-dup">库内已存在</td></tr>`);
+      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${wxCell}</td><td>${escapeHtml(note)}</td><td class="row-dup">库内已存在</td></tr>`);
       continue;
     }
     if (seenPhones.has(phone)) {
       skipDupInFile++;
-      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-dup">文件内重复</td></tr>`);
+      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${wxCell}</td><td>${escapeHtml(note)}</td><td class="row-dup">文件内重复</td></tr>`);
       continue;
     }
     seenPhones.add(phone);
-    parsedRows.push({ name, phone, note });
-    previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-ok">新增</td></tr>`);
+    parsedRows.push({ name, phone, wechat, note });
+    previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${wxCell}</td><td>${escapeHtml(note)}</td><td class="row-ok">新增</td></tr>`);
   }
 
   document.getElementById('parseResult').style.display = 'block';
@@ -595,8 +650,8 @@ function confirmImport() {
 function exportCSV() {
   const list = load();
   if (list.length === 0) { alert('暂无数据可导出'); return; }
-  const rows = [['姓名', '电话', '备注']];
-  list.forEach(c => rows.push([c.name, c.phone, c.note || '']));
+  const rows = [['姓名', '电话', '微信', '备注']];
+  list.forEach(c => rows.push([c.name, c.phone, c.wechat || '', c.note || '']));
   const csv = rows.map(r => r.map(cell => {
     const s = String(cell || '');
     return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -616,8 +671,8 @@ document.getElementById('searchInput').addEventListener('input', e => {
 
 if (load().length === 0) {
   save([
-    { id: 'c_demo1', name: '张总', phone: '13800138000', note: '企业贷意向客户' },
-    { id: 'c_demo2', name: '李经理', phone: '13912345678', note: '已加微信待跟进' },
+    { id: 'c_demo1', name: '张总', phone: '13800138000', wechat: 'zhangsan001', note: '企业贷意向客户' },
+    { id: 'c_demo2', name: '李经理', phone: '13912345678', wechat: 'lisi88', note: '已加微信待跟进' },
   ]);
 }
 
