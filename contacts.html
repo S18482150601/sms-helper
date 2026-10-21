@@ -277,6 +277,28 @@
   </div>
 </div>
 
+<!-- 添加微信弹窗 -->
+<div class="modal-mask" id="wxModal">
+  <div class="modal" style="text-align:center">
+    <h2>添加微信</h2>
+    <div style="font-size:28px;margin:10px 0">💬</div>
+    <div class="form-group">
+      <label>微信号</label>
+      <input type="text" id="wxDisplay" readonly onclick="this.select()" style="text-align:center;font-weight:600;color:#07c160">
+    </div>
+    <p style="font-size:13px;color:#7f8c8d;line-height:1.6;margin-bottom:12px">
+      1. 点击【复制微信号】<br>
+      2. 打开微信 → 添加朋友 → 粘贴搜索<br>
+      3. 部分手机可自动跳转微信
+    </p>
+    <div class="modal-actions">
+      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('wxModal')">关闭</button>
+      <button class="btn btn-primary" onclick="copyCurrentWx()">复制微信号</button>
+      <button class="btn" style="background:#07c160;color:#fff" onclick="openCurrentWx()">打开微信</button>
+    </div>
+  </div>
+</div>
+
 <!-- 批量导入弹窗 -->
 <div class="modal-mask" id="importModal">
   <div class="modal" style="max-width:560px">
@@ -438,22 +460,44 @@ function delContact(id) {
   render(document.getElementById('searchInput').value);
 }
 
+let currentWx = '';
+
 function copyWechat(wx, e) {
   if (e) e.preventDefault();
   if (!wx) { alert('该联系人未填写微信号'); return; }
+  currentWx = wx;
+  document.getElementById('wxDisplay').value = wx;
+  document.getElementById('wxModal').classList.add('show');
 
-  /* 先尝试用 iframe 唤起微信（不离开当前页），再兜底 location.href */
+  /* 后台默默尝试唤起微信，成败不影响弹窗反馈 */
   const weixinUrl = 'weixin://dl/add?username=' + encodeURIComponent(wx);
   tryOpenApp(weixinUrl);
 
-  /* 同时把微信号复制到剪贴板，作为唤起失败后的手动 fallback */
+  /* 同时把微信号复制到剪贴板 */
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(wx).catch(() => {});
   } else {
     fallbackCopy(wx, false);
   }
+}
 
-  alert('已尝试打开微信添加好友：' + wx + '\n若未自动跳转，请手动打开微信 → 添加朋友 → 粘贴搜索');
+function copyCurrentWx() {
+  if (!currentWx) return;
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(currentWx).then(() => {
+      alert('已复制微信号：' + currentWx);
+    }).catch(() => {
+      fallbackCopy(currentWx);
+    });
+  } else {
+    fallbackCopy(currentWx);
+  }
+}
+
+function openCurrentWx() {
+  if (!currentWx) return;
+  const weixinUrl = 'weixin://dl/add?username=' + encodeURIComponent(currentWx);
+  tryOpenApp(weixinUrl);
 }
 
 function tryOpenApp(url) {
