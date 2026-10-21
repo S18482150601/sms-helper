@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>客户联系表 · 一键拨号 / 短信</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: #f5f6fa;
+    color: #2c3e50;
+    padding: 12px;
+    padding-bottom: 80px;
+  }
+  .header {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    color: #fff;
+    padding: 16px;
+    border-radius: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(30,60,114,0.2);
+  }
+  .header h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
+  .header p { font-size: 12px; opacity: 0.85; }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .btn {
+    border: none;
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.15s;
+    font-weight: 500;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-primary { background: #2a5298; color: #fff; }
+  .btn-success { background: #27ae60; color: #fff; }
+  .btn-warn { background: #f39c12; color: #fff; }
+  .btn-danger { background: #e74c3c; color: #fff; }
+  .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 6px; }
+
+  .search-box {
+    flex: 1;
+    min-width: 140px;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+  }
+  .search-box:focus { border-color: #2a5298; }
+
+  .table-wrap {
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td {
+    padding: 12px 10px;
+    text-align: left;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 14px;
+  }
+  th {
+    background: #fafbfc;
+    font-weight: 600;
+    color: #7f8c8d;
+    font-size: 12px;
+    position: sticky;
+    top: 0;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:active { background: #f8f9fb; }
+
+  .name { font-weight: 600; }
+  .phone { font-family: "SF Mono", Menlo, monospace; color: #2a5298; }
+  .note { color: #95a5a6; font-size: 12px; }
+
+  .action-cell { white-space: nowrap; }
+  .action-cell a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    margin-right: 6px;
+    text-decoration: none;
+    color: #fff;
+    font-size: 16px;
+  }
+  .call-btn { background: #27ae60; }
+  .sms-btn { background: #3498db; }
+  .del-btn { background: #e74c3c; width: 28px; height: 28px; font-size: 12px; }
+
+  .empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #bdc3c7;
+    font-size: 14px;
+  }
+
+  .modal-mask {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: #fff;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 420px;
+    padding: 20px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .form-group { margin-bottom: 12px; }
+  .form-group label {
+    display: block;
+    font-size: 12px;
+    color: #7f8c8d;
+    margin-bottom: 4px;
+  }
+  .form-group input, .form-group textarea, .form-group select {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    font-size: 14px;
+    outline: none;
+    font-family: inherit;
+  }
+  .form-group input:focus, .form-group textarea:focus { border-color: #2a5298; }
+  .form-group textarea { min-height: 80px; resize: vertical; }
+  .modal-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+  }
+  .modal-actions .btn { flex: 1; }
+
+  .stats {
+    font-size: 12px;
+    color: #7f8c8d;
+    margin-bottom: 8px;
+    padding: 0 4px;
+  }
+
+  .import-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 12px;
+    border-bottom: 2px solid #ecf0f1;
+  }
+  .import-tab {
+    flex: 1;
+    padding: 10px;
+    border: none;
+    background: transparent;
+    font-size: 14px;
+    color: #7f8c8d;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+  }
+  .import-tab.active {
+    color: #2a5298;
+    font-weight: 600;
+    border-bottom-color: #2a5298;
+  }
+  #parsePreview td { padding: 6px 8px; font-size: 12px; }
+  .row-ok { color: #27ae60; }
+  .row-skip { color: #e74c3c; }
+  .row-dup { color: #f39c12; }
+
+  @media (max-width: 480px) {
+    th, td { padding: 10px 6px; font-size: 13px; }
+    .action-cell a { width: 32px; height: 32px; margin-right: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>客户联系表</h1>
+  <p>点击绿色按钮拨号 · 蓝色按钮发短信 · 数据保存在本机</p>
+</div>
+
+<div class="toolbar">
+  <input type="text" class="search-box" id="searchInput" placeholder="搜索姓名 / 电话 / 备注...">
+  <button class="btn btn-primary" onclick="openAddModal()">+ 添加</button>
+  <button class="btn btn-success" onclick="openImportModal()">批量导入</button>
+  <button class="btn btn-warn" onclick="openTemplateModal()">短信模板</button>
+  <button class="btn" style="background:#95a5a6;color:#fff" onclick="exportCSV()">导出</button>
+</div>
+
+<div class="stats" id="stats"></div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>姓名</th>
+        <th>电话</th>
+        <th>备注</th>
+        <th style="width:120px">操作</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+  <div class="empty" id="emptyTip" style="display:none">暂无联系人，点击右上角「+ 添加」</div>
+</div>
+
+<!-- 添加/编辑弹窗 -->
+<div class="modal-mask" id="addModal">
+  <div class="modal">
+    <h2 id="addModalTitle">添加联系人</h2>
+    <div class="form-group">
+      <label>姓名</label>
+      <input type="text" id="fName" placeholder="客户姓名">
+    </div>
+    <div class="form-group">
+      <label>手机号</label>
+      <input type="tel" id="fPhone" placeholder="11位手机号" maxlength="11">
+    </div>
+    <div class="form-group">
+      <label>备注（选填）</label>
+      <input type="text" id="fNote" placeholder="如：张总 / 企业贷 / 已加微信">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('addModal')">取消</button>
+      <button class="btn btn-primary" onclick="saveContact()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 短信模板弹窗 -->
+<div class="modal-mask" id="tplModal">
+  <div class="modal">
+    <h2>短信模板</h2>
+    <div class="form-group">
+      <label>默认短信内容（点击短信按钮时自动填入）</label>
+      <textarea id="fTemplate" placeholder="您好，我是XX金融的客户经理..."></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('tplModal')">取消</button>
+      <button class="btn btn-success" onclick="saveTemplate()">保存模板</button>
+    </div>
+  </div>
+</div>
+
+<!-- 批量导入弹窗 -->
+<div class="modal-mask" id="importModal">
+  <div class="modal" style="max-width:560px">
+    <h2>批量导入客户</h2>
+
+    <div class="import-tabs">
+      <button class="import-tab active" id="tabPaste" onclick="switchTab('paste')">粘贴Excel数据</button>
+      <button class="import-tab" id="tabFile" onclick="switchTab('file')">上传CSV文件</button>
+    </div>
+
+    <div id="panePaste">
+      <div class="form-group">
+        <label>从 Excel 选中区域 → 复制 → 粘贴到这里（列顺序：姓名、电话、备注）</label>
+        <textarea id="fPaste" style="min-height:140px;font-family:monospace;font-size:12px" placeholder="张三&#9;13800138000&#9;企业贷&#10;李四&#9;13912345678&#9;房贷"></textarea>
+      </div>
+    </div>
+
+    <div id="paneFile" style="display:none">
+      <div class="form-group">
+        <label>选择 CSV 文件（UTF-8 编码，列顺序：姓名,电话,备注）</label>
+        <input type="file" id="fFile" accept=".csv,text/csv" onchange="onFileChange(event)">
+      </div>
+    </div>
+
+    <div style="margin:12px 0">
+      <button class="btn btn-primary" onclick="doParse()">解析预览</button>
+    </div>
+
+    <div id="parseResult" style="display:none">
+      <div id="parseSummary" style="font-size:13px;margin-bottom:8px;padding:8px;background:#f8f9fb;border-radius:6px"></div>
+      <div style="max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
+        <table style="width:100%;font-size:12px">
+          <thead><tr><th>姓名</th><th>电话</th><th>备注</th><th>状态</th></tr></thead>
+          <tbody id="parsePreview"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('importModal')">取消</button>
+      <button class="btn btn-success" id="confirmImportBtn" onclick="confirmImport()" disabled style="opacity:0.5">确认导入</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const STORE_KEY = 'contacts_v1';
+const TPL_KEY = 'sms_template_v1';
+let editingId = null;
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
+  catch(e) { return []; }
+}
+function save(data) {
+  localStorage.setItem(STORE_KEY, JSON.stringify(data));
+}
+function getTemplate() {
+  return localStorage.getItem(TPL_KEY) || '';
+}
+
+function render(filter) {
+  const tbody = document.getElementById('tbody');
+  const emptyTip = document.getElementById('emptyTip');
+  let list = load();
+  if (filter) {
+    const f = filter.toLowerCase();
+    list = list.filter(c =>
+      (c.name||'').toLowerCase().includes(f) ||
+      (c.phone||'').includes(f) ||
+      (c.note||'').toLowerCase().includes(f)
+    );
+  }
+  document.getElementById('stats').textContent = `共 ${list.length} 位联系人`;
+
+  if (list.length === 0) {
+    tbody.innerHTML = '';
+    emptyTip.style.display = 'block';
+    return;
+  }
+  emptyTip.style.display = 'none';
+
+  const tpl = encodeURIComponent(getTemplate());
+  tbody.innerHTML = list.map(c => `
+    <tr>
+      <td class="name">${escapeHtml(c.name)}</td>
+      <td class="phone">${escapeHtml(c.phone)}</td>
+      <td class="note">${escapeHtml(c.note||'')}</td>
+      <td class="action-cell">
+        <a class="call-btn" href="tel:${c.phone}" title="拨打电话">📞</a>
+        <a class="sms-btn" href="sms:${c.phone}${tpl ? '?body='+tpl : ''}" title="发送短信">✉️</a>
+        <button class="btn btn-sm del-btn" onclick="delContact('${c.id}')" title="删除">✕</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return String(s||'').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+
+function openAddModal(id) {
+  editingId = id || null;
+  document.getElementById('addModalTitle').textContent = id ? '编辑联系人' : '添加联系人';
+  if (id) {
+    const c = load().find(x => x.id === id);
+    if (c) {
+      document.getElementById('fName').value = c.name || '';
+      document.getElementById('fPhone').value = c.phone || '';
+      document.getElementById('fNote').value = c.note || '';
+    }
+  } else {
+    document.getElementById('fName').value = '';
+    document.getElementById('fPhone').value = '';
+    document.getElementById('fNote').value = '';
+  }
+  document.getElementById('addModal').classList.add('show');
+}
+
+function openTemplateModal() {
+  document.getElementById('fTemplate').value = getTemplate();
+  document.getElementById('tplModal').classList.add('show');
+}
+
+function closeModal(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+function saveContact() {
+  const name = document.getElementById('fName').value.trim();
+  const phone = document.getElementById('fPhone').value.trim();
+  const note = document.getElementById('fNote').value.trim();
+  if (!name) { alert('请填写姓名'); return; }
+  if (!/^1\d{10}$/.test(phone)) { alert('请填写正确的11位手机号'); return; }
+
+  const list = load();
+  if (editingId) {
+    const idx = list.findIndex(x => x.id === editingId);
+    if (idx >= 0) list[idx] = { ...list[idx], name, phone, note };
+  } else {
+    list.push({ id: 'c_' + Date.now(), name, phone, note });
+  }
+  save(list);
+  closeModal('addModal');
+  render(document.getElementById('searchInput').value);
+}
+
+function delContact(id) {
+  if (!confirm('确定删除这位联系人？')) return;
+  save(load().filter(x => x.id !== id));
+  render(document.getElementById('searchInput').value);
+}
+
+function saveTemplate() {
+  const tpl = document.getElementById('fTemplate').value;
+  localStorage.setItem(TPL_KEY, tpl);
+  closeModal('tplModal');
+  render(document.getElementById('searchInput').value);
+  alert('短信模板已保存');
+}
+
+/* ========== 批量导入 ========== */
+let parsedRows = [];
+let currentTab = 'paste';
+
+function openImportModal() {
+  document.getElementById('fPaste').value = '';
+  document.getElementById('fFile').value = '';
+  document.getElementById('parseResult').style.display = 'none';
+  document.getElementById('confirmImportBtn').disabled = true;
+  document.getElementById('confirmImportBtn').style.opacity = 0.5;
+  parsedRows = [];
+  switchTab('paste');
+  document.getElementById('importModal').classList.add('show');
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.getElementById('tabPaste').classList.toggle('active', tab === 'paste');
+  document.getElementById('tabFile').classList.toggle('active', tab === 'file');
+  document.getElementById('panePaste').style.display = tab === 'paste' ? 'block' : 'none';
+  document.getElementById('paneFile').style.display = tab === 'file' ? 'block' : 'none';
+}
+
+function onFileChange(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    document.getElementById('fPaste').value = ev.target.result;
+    switchTab('paste');
+    doParse();
+  };
+  reader.readAsText(file, 'UTF-8');
+}
+
+function cleanPhone(p) {
+  if (!p) return '';
+  let s = String(p).replace(/[\s\-()]/g, '');
+  if (s.startsWith('+86')) s = s.slice(3);
+  if (s.startsWith('86') && s.length === 13) s = s.slice(2);
+  return s;
+}
+
+function parseText(text) {
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (text[i+1] === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else cell += ch;
+    } else {
+      if (ch === '"') inQuotes = true;
+      else if (ch === ',' || ch === '\t') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i+1] === '\n') i++;
+        row.push(cell); cell = '';
+        rows.push(row); row = [];
+      }
+      else cell += ch;
+    }
+  }
+  if (cell !== '' || row.length > 0) { row.push(cell); rows.push(row); }
+  return rows.filter(r => r.some(c => c.trim() !== ''));
+}
+
+function doParse() {
+  const text = document.getElementById('fPaste').value.trim();
+  if (!text) { alert('请先粘贴数据或选择文件'); return; }
+
+  const raw = parseText(text);
+  if (raw.length === 0) { alert('未解析到数据'); return; }
+
+  let startIdx = 0;
+  let colMap = { name: 0, phone: 1, note: 2 };
+  const firstRow = raw[0].map(c => c.trim().toLowerCase());
+  const hasHeader = firstRow.some(c =>
+    c.includes('姓名') || c.includes('name') ||
+    c.includes('电话') || c.includes('手机') || c.includes('phone') ||
+    c.includes('备注') || c.includes('note') || c.includes('remark')
+  );
+  if (hasHeader) {
+    startIdx = 1;
+    firstRow.forEach((c, i) => {
+      if (c.includes('姓名') || c.includes('name')) colMap.name = i;
+      else if (c.includes('电话') || c.includes('手机') || c.includes('phone')) colMap.phone = i;
+      else if (c.includes('备注') || c.includes('note') || c.includes('remark')) colMap.note = i;
+    });
+  }
+
+  const existingPhones = new Set(load().map(x => x.phone));
+  const seenPhones = new Set();
+  parsedRows = [];
+  let skipInvalid = 0, skipDupExisting = 0, skipDupInFile = 0;
+
+  const previewHtml = [];
+  for (let i = startIdx; i < raw.length; i++) {
+    const r = raw[i];
+    const name = (r[colMap.name] || '').trim();
+    const phone = cleanPhone(r[colMap.phone]);
+    const note = (r[colMap.note] || '').trim();
+
+    if (!name || !/^1\d{10}$/.test(phone)) {
+      skipInvalid++;
+      previewHtml.push(`<tr><td>${escapeHtml(name)||'-'}</td><td>${escapeHtml(phone)||'-'}</td><td>${escapeHtml(note)}</td><td class="row-skip">无效</td></tr>`);
+      continue;
+    }
+    if (existingPhones.has(phone)) {
+      skipDupExisting++;
+      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-dup">库内已存在</td></tr>`);
+      continue;
+    }
+    if (seenPhones.has(phone)) {
+      skipDupInFile++;
+      previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-dup">文件内重复</td></tr>`);
+      continue;
+    }
+    seenPhones.add(phone);
+    parsedRows.push({ name, phone, note });
+    previewHtml.push(`<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(phone)}</td><td>${escapeHtml(note)}</td><td class="row-ok">新增</td></tr>`);
+  }
+
+  document.getElementById('parseResult').style.display = 'block';
+  document.getElementById('parseSummary').innerHTML =
+    `共解析 <b>${raw.length - startIdx}</b> 行：` +
+    `<span class="row-ok">新增 ${parsedRows.length}</span> · ` +
+    `<span class="row-dup">重复 ${skipDupExisting + skipDupInFile}</span> · ` +
+    `<span class="row-skip">无效 ${skipInvalid}</span>`;
+  document.getElementById('parsePreview').innerHTML = previewHtml.join('');
+
+  const btn = document.getElementById('confirmImportBtn');
+  if (parsedRows.length > 0) {
+    btn.disabled = false;
+    btn.style.opacity = 1;
+    btn.textContent = `确认导入 ${parsedRows.length} 条`;
+  } else {
+    btn.disabled = true;
+    btn.style.opacity = 0.5;
+    btn.textContent = '无有效数据可导入';
+  }
+}
+
+function confirmImport() {
+  if (parsedRows.length === 0) return;
+  const list = load();
+  parsedRows.forEach((r, i) => {
+    list.push({ id: 'c_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2,6), ...r });
+  });
+  save(list);
+  closeModal('importModal');
+  render(document.getElementById('searchInput').value);
+  alert(`成功导入 ${parsedRows.length} 位客户`);
+}
+
+/* ========== 导出备份 ========== */
+function exportCSV() {
+  const list = load();
+  if (list.length === 0) { alert('暂无数据可导出'); return; }
+  const rows = [['姓名', '电话', '备注']];
+  list.forEach(c => rows.push([c.name, c.phone, c.note || '']));
+  const csv = rows.map(r => r.map(cell => {
+    const s = String(cell || '');
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '客户联系表_' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('searchInput').addEventListener('input', e => {
+  render(e.target.value);
+});
+
+if (load().length === 0) {
+  save([
+    { id: 'c_demo1', name: '张总', phone: '13800138000', note: '企业贷意向客户' },
+    { id: 'c_demo2', name: '李经理', phone: '13912345678', note: '已加微信待跟进' },
+  ]);
+}
+
+render();
+</script>
+</body>
+</html>
