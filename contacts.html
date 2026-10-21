@@ -370,7 +370,7 @@ function render(filter) {
       <td class="action-cell">
         <a class="call-btn" href="tel:${c.phone}" title="拨打电话">📞</a>
         <a class="sms-btn" href="sms:${c.phone}${tpl ? '?body='+tpl : ''}" title="发送短信">✉️</a>
-        <a class="wx-btn" href="javascript:void(0)" onclick="copyWechat(${JSON.stringify(c.wechat||'')}, event)" title="复制微信号">💬</a>
+        <a class="wx-btn" href="javascript:void(0)" onclick="copyWechat(${JSON.stringify(c.phone)}, event)" title="添加微信">💬</a>
         <button class="btn btn-sm del-btn" onclick="delContact('${c.id}')" title="删除">✕</button>
       </td>
     </tr>
@@ -439,45 +439,23 @@ function delContact(id) {
   render(document.getElementById('searchInput').value);
 }
 
-function copyWechat(wx, e) {
+function copyWechat(phone, e) {
   if (e) e.preventDefault();
-  if (!wx) { alert('该联系人未填写微信号'); return; }
+  if (!phone) { alert('该联系人没有手机号'); return; }
 
-  /* 1. 同步复制到剪贴板（必须在用户手势事件里完成，iOS 尤其严格） */
-  var copied = false;
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    try {
-      /* 用同步的 execCommand 兜底，比异步 Promise 在 iOS 更稳 */
-      copied = syncCopy(wx);
-    } catch (err) { copied = false; }
-  } else {
-    copied = syncCopy(wx);
-  }
+  /* 1. 同步复制手机号到剪贴板（必须在用户手势事件里完成） */
+  syncCopy(phone);
 
-  /* 2. 立即尝试唤起微信（iOS 必须在同一点击事件链里） */
-  /* 带 username 的 scheme 在 iOS 基本被屏蔽，先尝试简单 weixin:// / wechat:// */
+  /* 2. 立即尝试跳转微信（iOS 必须在同一点击事件链里，不能用 setTimeout/iframe） */
   var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-  var scheme = isIOS ? 'weixin://' : 'weixin://dl/add?username=' + encodeURIComponent(wx);
-  var wechatScheme = isIOS ? 'wechat://' : 'weixin://dl/add?username=' + encodeURIComponent(wx);
-
-  /* 先 iframe 尝试，不离开当前页 */
-  var ifr = document.createElement('iframe');
-  ifr.style.display = 'none';
-  ifr.src = scheme;
-  document.body.appendChild(ifr);
-  setTimeout(function () { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 2000);
-
-  /* 150ms 后再补一次顶层 href 跳转 */
-  setTimeout(function () {
-    if (!document.hidden) window.location.href = wechatScheme;
-  }, 150);
+  if (isIOS) {
+    window.location.href = 'weixin://';
+  } else {
+    window.location.href = 'weixin://dl/add?username=' + encodeURIComponent(phone);
+  }
 
   /* 3. 提示用户 */
-  if (copied) {
-    alert('已复制手机号/微信号：' + wx + '\n正在尝试打开微信，若未自动跳转请手动打开微信粘贴搜索。');
-  } else {
-    alert('正在尝试打开微信添加：' + wx + '\n若未自动跳转，请手动复制号码后打开微信粘贴搜索。');
-  }
+  alert('已复制手机号：' + phone + '\n正在尝试打开微信，若未自动跳转请手动打开微信粘贴搜索。');
 }
 
 function syncCopy(text) {
@@ -490,12 +468,8 @@ function syncCopy(text) {
   document.body.appendChild(ta);
   ta.select();
   ta.setSelectionRange(0, text.length);
-  var ok = false;
-  try {
-    ok = document.execCommand('copy');
-  } catch (err) { ok = false; }
+  try { document.execCommand('copy'); } catch (err) {}
   document.body.removeChild(ta);
-  return ok;
 }
 
 function clearAllContacts() {
