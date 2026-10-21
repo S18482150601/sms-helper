@@ -441,18 +441,36 @@ function delContact(id) {
 function copyWechat(wx, e) {
   if (e) e.preventDefault();
   if (!wx) { alert('该联系人未填写微信号'); return; }
+
+  /* 先尝试用 iframe 唤起微信（不离开当前页），再兜底 location.href */
+  const weixinUrl = 'weixin://dl/add?username=' + encodeURIComponent(wx);
+  tryOpenApp(weixinUrl);
+
+  /* 同时把微信号复制到剪贴板，作为唤起失败后的手动 fallback */
   if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(wx).then(() => {
-      alert('已复制微信号：' + wx + '\n请打开微信 → 添加朋友 → 粘贴搜索');
-    }).catch(() => {
-      fallbackCopy(wx);
-    });
+    navigator.clipboard.writeText(wx).catch(() => {});
   } else {
-    fallbackCopy(wx);
+    fallbackCopy(wx, false);
   }
+
+  alert('已尝试打开微信添加好友：' + wx + '\n若未自动跳转，请手动打开微信 → 添加朋友 → 粘贴搜索');
 }
 
-function fallbackCopy(text) {
+function tryOpenApp(url) {
+  var ifr = document.createElement('iframe');
+  ifr.style.display = 'none';
+  ifr.src = url;
+  document.body.appendChild(ifr);
+  setTimeout(function () { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 3000);
+
+  /* 部分浏览器 iframe 无法唤起外部 App，再补一次顶层跳转 */
+  setTimeout(function () {
+    if (!document.hidden) window.location.href = url;
+  }, 150);
+}
+
+function fallbackCopy(text, showAlert) {
+  showAlert = showAlert !== false;
   const ta = document.createElement('textarea');
   ta.value = text;
   ta.style.position = 'fixed';
@@ -461,9 +479,9 @@ function fallbackCopy(text) {
   ta.select();
   try {
     document.execCommand('copy');
-    alert('已复制微信号：' + text + '\n请打开微信 → 添加朋友 → 粘贴搜索');
+    if (showAlert) alert('已复制微信号：' + text + '\n请打开微信 → 添加朋友 → 粘贴搜索');
   } catch (err) {
-    alert('复制失败，请手动复制微信号：' + text);
+    if (showAlert) alert('复制失败，请手动复制微信号：' + text);
   }
   document.body.removeChild(ta);
 }
