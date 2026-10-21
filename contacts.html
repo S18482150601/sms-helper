@@ -212,11 +212,13 @@
   <button class="btn btn-primary" onclick="openAddModal()">+ 添加</button>
   <button class="btn btn-success" onclick="openImportModal()">批量导入</button>
   <button class="btn btn-warn" onclick="openTemplateModal()">短信模板</button>
+  <button class="btn" style="background:#e67e22;color:#fff" onclick="startAutoCall()">连续拨号</button>
   <button class="btn" style="background:#95a5a6;color:#fff" onclick="exportCSV()">导出</button>
   <button class="btn btn-danger" onclick="clearAllContacts()">清空联系人</button>
 </div>
 
 <div class="stats" id="stats"></div>
+<div id="autoCallStatus" style="display:none;padding:8px 12px;margin:8px 0;background:#fff3e0;color:#e65100;border-radius:6px;font-size:13px;text-align:center"></div>
 
 <div class="table-wrap">
   <table>
@@ -320,6 +322,8 @@
 const STORE_KEY = 'contacts_v1';
 const TPL_KEY = 'sms_template_v1';
 let editingId = null;
+let autoCallIndex = -1;
+let autoCallList = [];
 
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
@@ -425,6 +429,66 @@ function delContact(id) {
   save(load().filter(x => x.id !== id));
   render(document.getElementById('searchInput').value);
 }
+
+function startAutoCall() {
+  const list = load();
+  if (list.length === 0) { alert('当前没有联系人'); return; }
+  if (autoCallIndex >= 0) {
+    /* 已在自动拨号中，询问是否重新开始 */
+    if (!confirm('正在连续拨号中，是否从头重新开始？')) return;
+  }
+  autoCallList = list;
+  autoCallIndex = 0;
+  updateAutoCallStatus();
+  callNext();
+}
+
+function stopAutoCall() {
+  autoCallIndex = -1;
+  autoCallList = [];
+  updateAutoCallStatus();
+}
+
+function callNext() {
+  if (autoCallIndex < 0) return;
+  if (autoCallIndex >= autoCallList.length) {
+    alert('连续拨号已完成，共拨打 ' + autoCallList.length + ' 通电话');
+    stopAutoCall();
+    return;
+  }
+  const c = autoCallList[autoCallIndex];
+  updateAutoCallStatus();
+  window.location.href = 'tel:' + c.phone;
+}
+
+function updateAutoCallStatus() {
+  const el = document.getElementById('autoCallStatus');
+  if (autoCallIndex < 0) {
+    el.style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  el.style.display = 'block';
+  if (autoCallIndex < autoCallList.length) {
+    const c = autoCallList[autoCallIndex];
+    el.innerHTML = `正在连续拨号：第 <b>${autoCallIndex + 1}</b> / ${autoCallList.length} 通 · ${escapeHtml(c.name)} ${escapeHtml(c.phone)}<br><small>挂断后返回本页面，将自动拨打下一通</small>`;
+  } else {
+    el.textContent = '连续拨号即将完成...';
+  }
+}
+
+/* 挂断后返回页面，自动继续拨打下一通 */
+document.addEventListener('visibilitychange', function () {
+  if (!document.hidden && autoCallIndex >= 0) {
+    /* 延迟 600ms，避免页面刚返回时状态不稳定 */
+    setTimeout(function () {
+      if (autoCallIndex >= 0) {
+        autoCallIndex++;
+        callNext();
+      }
+    }, 600);
+  }
+});
 
 function clearAllContacts() {
   if (load().length === 0) { alert('当前没有联系人'); return; }
