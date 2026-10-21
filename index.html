@@ -102,7 +102,12 @@ var sentPhones = {};    // 已发送号码表：{归一化号码: 首次唤起�
 var runTotal = 0;       // 本次任务开始时的队列长度（用于进度显示）
 var runSent = 0;        // 本次任务**实际已唤起**的条数（只加不减，保证计数准确不回退）
 var retryCount = 0;     // 当前这条号码“唤起失败”的重试次数
-var smsIntentAt = 0;    // 最近一次检测到“已唤起短信/页面失去焦点”的时间，用于避免重复触发授权弹窗
+/* smsIntentAt 只在「页面真切到后台」时才设（看门狗那行）。
+ * 不能用 blur 事件记账——系统级"允许打开"弹窗出现时页面会 blur，
+ * 但用户如果点「拒绝」，页面随即 focus 回来、document.hidden 仍是 false，
+ * 此时 smsIntentAt 被误设非 0，会导致 armNavFallback 认为"已唤起过"而直接跳过，
+ * 任务永远卡在 awaitingReturn=true → 卡死。 */
+var smsIntentAt = 0;    // 最近一次检测到「页面真切后台」的时间戳
 
 /* ---------------- 平台识别 ----------------
  * iOS 与 Android 的 sms: 协议格式不同：
@@ -202,9 +207,8 @@ function openSms(url) {
   ifr.src = url;
   setTimeout(function () { if (ifr.parentNode) ifr.parentNode.removeChild(ifr); }, 4000);
 
-  /* 兜底：iframe 被浏览器拦截（短信没打开）时，补一次顶层跳转；已唤起过则跳过 */
+  /* 兜底：iframe 被浏览器拦截（短信没打开）时，补一次顶层跳转；页面真切后台则跳过 */
   setTimeout(function () {
-    if (smsIntentAt) return;                          // 已经弹过确认框 / 切到过短信，不再补跳
     if (!isRun || !awaitingReturn) return;
     if (document.hidden) return;
     window.location.href = url;
@@ -344,11 +348,14 @@ $('fileInput').addEventListener('change', function (e) {
       var buf = new Uint8Array(ev.target.result);
       var wb;
       if (/\.(csv|txt|tsv)$/i.test(f.name)) {
-        /* CSV 先按 UTF-8 解码；若出现替换字符说明是 GBK 编码，改用 GBK 解码重试 */
+        /* CSV 先按 UTF-8 解码；若出现替换字符说明是 GBK 编码，改用 GBK 解码重试。
+         * 同时把 \r\n 和纯 \r 都归一化成 \n——Windows Excel 导出的 CSV 常是 CRLF，
+         * 不同浏览器/XLSX 版本对 CRLF 的处理不一致，先归一能避免"表头里残留 \r"。 */
         var txt = new TextDecoder('utf-8').decode(buf);
         if (txt.indexOf('\uFFFD') !== -1) {
           try { txt = new TextDecoder('gbk').decode(buf); } catch (ignoreErr) {}
         }
+        txt = txt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         wb = XLSX.read(txt, { type: 'string' });
       } else {
         wb = XLSX.read(buf, { type: 'array' });
@@ -488,7 +495,7 @@ function armNavFallback(myStep, it) {
   setTimeout(function () {
     if (stepId !== myStep) return;                 // 已被后续步骤推进，忽略
     if (!isRun || !awaitingReturn) return;
-    if (document.hidden || smsIntentAt) return;    // 已唤起过，安心等用户返回，绝不重复跳转
+    if (document.hidden) return;    // 页面真切后台（短信 App 已在前台），安心等用户返回，绝不重复跳转
 
     if (retryCount < MAX_RETRY) {
       retryCount++;
@@ -641,12 +648,6 @@ function handleVisible() {
 document.addEventListener('visibilitychange', handleVisible);
 window.addEventListener('pageshow', handleVisible);
 window.addEventListener('focus', handleVisible);
-/* 窗口失去焦点（弹出“允许打开信息”确认框 / 切到短信 App）也算已唤起。
- * 仅在“正在等待返回”时才记账，避免用户点地址栏等偶然失焦被误当成已唤起而跳过号码。 */
-window.addEventListener('blur', function () {
-  if (!isRun || !awaitingReturn) return;
-  smsIntentAt = Date.now();
-});
 /* 页面被系统回收 / 切走前再存一次状态，尽量减少“重载后状态过旧”导致的重复发送 */
 window.addEventListener('pagehide', function () { if (isRun || awaitingReturn) saveState(); });
 
