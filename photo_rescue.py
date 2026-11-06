@@ -78,7 +78,7 @@ def pil_verify(data, need_pixels=16 * 16):
         im = Image.open(io.BytesIO(data))
         im.load()
         w, h = im.size
-        return w >= need_pixels, h >= need_pixels
+        return w >= need_pixels and h >= need_pixels
     except Exception:
         return False
 
