@@ -213,6 +213,7 @@
   <button class="btn btn-success" onclick="openImportModal()">批量导入</button>
   <button class="btn btn-warn" onclick="openTemplateModal()">短信模板</button>
   <button class="btn" style="background:#e67e22;color:#fff" onclick="startAutoCall()">连续拨号</button>
+  <button class="btn" id="autoPauseBtn" style="background:#7f8c8d;color:#fff;display:none" onclick="toggleAutoPause()">暂停</button>
   <button class="btn" style="background:#95a5a6;color:#fff" onclick="exportCSV()">导出</button>
   <button class="btn btn-danger" onclick="clearAllContacts()">清空联系人</button>
 </div>
@@ -324,6 +325,10 @@ const TPL_KEY = 'sms_template_v1';
 let editingId = null;
 let autoCallIndex = -1;
 let autoCallList = [];
+let autoPaused = false;          /* 是否暂停自动续拨 */
+let autoWaiting = false;         /* 挂断返回后、自动拨下一通前的等待窗口 */
+let autoResumeTimer = null;
+const AUTO_RESUME_DELAY = 1500;  /* 等待窗口毫秒数，留出点“暂停”的时间 */
 
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY)) || []; }
@@ -437,16 +442,47 @@ function startAutoCall() {
     /* 已在自动拨号中，询问是否重新开始 */
     if (!confirm('正在连续拨号中，是否从头重新开始？')) return;
   }
+  clearAutoResumeTimer();
   autoCallList = list;
   autoCallIndex = 0;
+  autoPaused = false;
+  autoWaiting = false;
   updateAutoCallStatus();
   callNext();
 }
 
 function stopAutoCall() {
+  clearAutoResumeTimer();
   autoCallIndex = -1;
   autoCallList = [];
+  autoPaused = false;
+  autoWaiting = false;
   updateAutoCallStatus();
+}
+
+function clearAutoResumeTimer() {
+  if (autoResumeTimer) {
+    clearTimeout(autoResumeTimer);
+    autoResumeTimer = null;
+  }
+}
+
+/* 暂停 / 继续 自动连续拨号 */
+function toggleAutoPause() {
+  if (autoCallIndex < 0) return;
+  if (autoPaused) {
+    /* 继续：立即拨打暂停时停在的那一通 */
+    autoPaused = false;
+    autoWaiting = false;
+    updateAutoCallStatus();
+    callNext();
+  } else {
+    /* 暂停：取消待拨计时，不再自动拨打下一通 */
+    autoPaused = true;
+    autoWaiting = false;
+    clearAutoResumeTimer();
+    updateAutoCallStatus();
+  }
 }
 
 function callNext() {
@@ -457,35 +493,68 @@ function callNext() {
     return;
   }
   const c = autoCallList[autoCallIndex];
+  autoWaiting = false;
   updateAutoCallStatus();
   window.location.href = 'tel:' + c.phone;
 }
 
 function updateAutoCallStatus() {
   const el = document.getElementById('autoCallStatus');
+  const pauseBtn = document.getElementById('autoPauseBtn');
   if (autoCallIndex < 0) {
     el.style.display = 'none';
-    el.textContent = '';
+    el.innerHTML = '';
+    if (pauseBtn) pauseBtn.style.display = 'none';
     return;
   }
+  if (pauseBtn) {
+    pauseBtn.style.display = '';
+    pauseBtn.textContent = autoPaused ? '继续拨号' : '暂停';
+    pauseBtn.style.background = autoPaused ? '#27ae60' : '#7f8c8d';
+  }
   el.style.display = 'block';
-  if (autoCallIndex < autoCallList.length) {
-    const c = autoCallList[autoCallIndex];
-    el.innerHTML = `正在连续拨号：第 <b>${autoCallIndex + 1}</b> / ${autoCallList.length} 通 · ${escapeHtml(c.name)} ${escapeHtml(c.phone)}<br><small>挂断后返回本页面，将自动拨打下一通</small>`;
-  } else {
+  if (autoCallIndex >= autoCallList.length) {
     el.textContent = '连续拨号即将完成...';
+    return;
+  }
+  const c = autoCallList[autoCallIndex];
+  const who = `${escapeHtml(c.name)} ${escapeHtml(c.phone)}`;
+  if (autoPaused) {
+    el.innerHTML = `⏸ 已暂停 · 已完成 <b>${autoCallIndex}</b> / ${autoCallList.length} 通<br><small>点「继续拨号」接着拨打第 ${autoCallIndex + 1} 通：${who}</small>`;
+  } else if (autoWaiting) {
+    el.innerHTML = `已挂断 · ${AUTO_RESUME_DELAY / 1000} 秒后自动拨打第 <b>${autoCallIndex + 1}</b> / ${autoCallList.length} 通 · ${who}<br><small>此期间点「暂停」可停止自动拨打</small>`;
+  } else {
+    el.innerHTML = `正在连续拨号：第 <b>${autoCallIndex + 1}</b> / ${autoCallList.length} 通 · ${who}<br><small>挂断后返回本页面，将自动拨打下一通</small>`;
   }
 }
 
-/* 挂断后返回页面，自动继续拨打下一通 */
+/* 挂断后返回页面，自动继续拨打下一通（暂停状态则停下等待） */
 document.addEventListener('visibilitychange', function () {
   if (!document.hidden && autoCallIndex >= 0) {
     /* 延迟 600ms，避免页面刚返回时状态不稳定 */
     setTimeout(function () {
-      if (autoCallIndex >= 0) {
-        autoCallIndex++;
-        callNext();
+      if (autoCallIndex < 0) return;
+      if (autoPaused) {
+        /* 已暂停：返回页面也不再推进，避免跳过联系人 */
+        updateAutoCallStatus();
+        return;
       }
+      autoCallIndex++;
+      if (autoCallIndex >= autoCallList.length) {
+        callNext();
+        return;
+      }
+      /* 先给一个可点“暂停”的等待窗口，再自动拨下一通 */
+      autoWaiting = true;
+      updateAutoCallStatus();
+      clearAutoResumeTimer();
+      autoResumeTimer = setTimeout(function () {
+        autoResumeTimer = null;
+        if (autoCallIndex < 0) return;
+        autoWaiting = false;
+        if (autoPaused) { updateAutoCallStatus(); return; }
+        callNext();
+      }, AUTO_RESUME_DELAY);
     }, 600);
   }
 });
