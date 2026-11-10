@@ -286,14 +286,14 @@
 
     <div id="panePaste">
       <div class="form-group">
-        <label>从 Excel 选中区域 → 复制 → 粘贴到这里（列顺序：姓名、电话、备注）</label>
-        <textarea id="fPaste" style="min-height:140px;font-family:monospace;font-size:12px" placeholder="张三&#9;13800138000&#9;企业贷&#10;李四&#9;13912345678&#9;房贷"></textarea>
+        <label>直接粘贴即可（有没有表头都行，姓名、手机号、公司/备注会自动识别）</label>
+        <textarea id="fPaste" style="min-height:140px;font-family:monospace;font-size:12px" placeholder="张三&#9;13800138000&#9;某某有限公司&#10;13812345678&#10;李四 13912345678 个体户"></textarea>
       </div>
     </div>
 
     <div id="paneFile" style="display:none">
       <div class="form-group">
-        <label>选择 CSV 文件（UTF-8 编码，列顺序：姓名,电话,备注）</label>
+        <label>选择 CSV 文件（有没有表头都行，会自动识别姓名、手机号、公司/备注）</label>
         <input type="file" id="fFile" accept=".csv,text/csv" onchange="onFileChange(event)">
       </div>
     </div>
@@ -603,7 +603,19 @@ function onFileChange(e) {
   if (!file) return;
   const reader = new FileReader();
   reader.onload = function(ev) {
-    document.getElementById('fPaste').value = ev.target.result;
+    const text = ev.target.result;
+    /* Excel 另存的 CSV 常见 GBK 编码，出现替换字符就按 GBK 重读一次 */
+    if (/\uFFFD/.test(text)) {
+      const r2 = new FileReader();
+      r2.onload = function(e2) {
+        document.getElementById('fPaste').value = e2.target.result;
+        switchTab('paste');
+        doParse();
+      };
+      r2.readAsText(file, 'GBK');
+      return;
+    }
+    document.getElementById('fPaste').value = text;
     switchTab('paste');
     doParse();
   };
@@ -632,7 +644,7 @@ function parseText(text) {
       } else cell += ch;
     } else {
       if (ch === '"') inQuotes = true;
-      else if (ch === ',' || ch === '\t') { row.push(cell); cell = ''; }
+      else if (ch === ',' || ch === '\t' || ch === '，') { row.push(cell); cell = ''; }
       else if (ch === '\n' || ch === '\r') {
         if (ch === '\r' && text[i+1] === '\n') i++;
         row.push(cell); cell = '';
@@ -645,29 +657,126 @@ function parseText(text) {
   return rows.filter(r => r.some(c => c.trim() !== ''));
 }
 
+/* ---------- 自动识别列：不要求表头、不要求列顺序 ---------- */
+const HEADER_PHONE = ['电话', '手机', '号码', '联系方式', 'tel', 'phone', 'mobile'];
+const HEADER_NAME = ['姓名', '名称', '名字', '联系人', 'name'];
+const HEADER_NOTE = ['备注', '公司', '单位', '企业', '地址', '行业', '说明', 'note', 'remark', 'company'];
+const COMPANY_RE = /(公司|集团|有限|工厂|厂|店|工作室|事务所|中心|银行|学校|医院|机构|商行|经营部|门市|合作社|分公司|总公司)/;
+const PHONE_IN_TEXT = /1[3-9]\d{9}/;
+
+/* 从任意文本里抽出 11 位手机号（兼容 +86、空格、横线、括号） */
+function extractPhone(v) {
+  if (v === undefined || v === null) return '';
+  const s = String(v).trim();
+  if (!s) return '';
+  const p = cleanPhone(s);
+  if (/^1\d{10}$/.test(p)) return p;
+  const m = s.match(PHONE_IN_TEXT);
+  return m ? m[0] : '';
+}
+
+/* 像人名的单元格：短、纯中文/字母、不是公司名 */
+function isNameLike(v) {
+  const s = String(v || '').trim();
+  if (!s || s.length > 10) return false;
+  if (extractPhone(s)) return false;
+  if (COMPANY_RE.test(s)) return false;
+  return /^[\u4e00-\u9fa5·•A-Za-z][\u4e00-\u9fa5·•A-Za-z\s]{0,9}$/.test(s);
+}
+
+/* 没有表头时，按内容判断哪一列是手机号、哪一列是姓名 */
+function detectByContent(rows) {
+  const nCols = Math.max.apply(null, rows.map(r => r.length).concat([1]));
+  const cols = [];
+  for (let i = 0; i < nCols; i++) cols.push({ i, phone: 0, name: 0, filled: 0 });
+  rows.forEach(r => {
+    for (let i = 0; i < nCols; i++) {
+      const v = String(r[i] || '').trim();
+      if (!v) continue;
+      cols[i].filled++;
+      if (extractPhone(v)) cols[i].phone++;
+      else if (isNameLike(v)) cols[i].name++;
+    }
+  });
+  const byPhone = cols.slice().sort((a, b) => b.phone - a.phone || b.filled - a.filled)[0];
+  const rest = cols.filter(c => c.i !== byPhone.i).sort((a, b) => b.name - a.name || b.filled - a.filled);
+  return {
+    phone: byPhone && byPhone.phone > 0 ? byPhone.i : -1,
+    name: rest.length && rest[0].name > 0 ? rest[0].i : -1
+  };
+}
+
+/* 有表头时，按标题文字认列 */
+function matchHeader(cells) {
+  const map = { phone: -1, name: -1 };
+  cells.map(c => String(c || '').toLowerCase().trim()).forEach((t, i) => {
+    if (map.phone < 0 && HEADER_PHONE.some(k => t.includes(k))) { map.phone = i; return; }
+    if (HEADER_NOTE.some(k => t.includes(k))) return;   /* 公司/备注/地址等列自动进备注 */
+    if (map.name < 0 && HEADER_NAME.some(k => t.includes(k))) map.name = i;
+  });
+  return map;
+}
+
+/* 一行数据 → 一条联系人 */
+function buildContact(cells, map) {
+  let phone = '';
+  let phoneIdx = -1;
+  if (map.phone >= 0) {
+    phone = extractPhone(cells[map.phone]);
+    if (phone) phoneIdx = map.phone;
+  }
+  if (!phone) {
+    for (let i = 0; i < cells.length; i++) {
+      const p = extractPhone(cells[i]);
+      if (p) { phone = p; phoneIdx = i; break; }
+    }
+  }
+  let name = map.name >= 0 ? String(cells[map.name] || '').trim() : '';
+  const extras = [];
+  const pushText = v => {
+    const s = String(v || '').trim();
+    if (!s) return;
+    if (/^\d{1,6}(\.\d+)?$/.test(s)) return;          /* 序号列 */
+    if (!name && isNameLike(s)) { name = s; return; }
+    extras.push(s);
+  };
+  for (let i = 0; i < cells.length; i++) {
+    if (i === map.name) continue;
+    const raw = String(cells[i] || '').trim();
+    if (!raw) continue;
+    if (i === phoneIdx) {
+      /* 这一格里除了手机号还夹着姓名/公司（如「李四 13800138000 个体户」） */
+      raw.replace(/[\d\s+＋()（）\-－—·]/g, ' ').split(/\s+/).forEach(pushText);
+      continue;
+    }
+    if (extractPhone(raw)) continue;
+    pushText(raw);
+  }
+  return { name: name || phone, phone, note: extras.join(' · ') };
+}
+
 function doParse() {
-  const text = document.getElementById('fPaste').value.trim();
+  const text = document.getElementById('fPaste').value.replace(/^\uFEFF/, '').trim();
   if (!text) { alert('请先粘贴数据或选择文件'); return; }
 
   const raw = parseText(text);
   if (raw.length === 0) { alert('未解析到数据'); return; }
 
+  /* 第一行同时满足：不含手机号 + 含表头关键词，才算表头 */
+  const firstRow = raw[0].map(c => String(c || '').toLowerCase().trim());
+  const hasPhoneInFirst = raw[0].some(c => extractPhone(c));
+  const hasHeader = !hasPhoneInFirst && firstRow.some(c =>
+    HEADER_PHONE.concat(HEADER_NAME, HEADER_NOTE).some(k => c.includes(k)));
+
   let startIdx = 0;
-  let colMap = { name: 0, phone: 1, note: 2 };
-  const firstRow = raw[0].map(c => c.trim().toLowerCase());
-  const hasHeader = firstRow.some(c =>
-    c.includes('姓名') || c.includes('name') ||
-    c.includes('电话') || c.includes('手机') || c.includes('phone') ||
-    c.includes('备注') || c.includes('note') || c.includes('remark')
-  );
+  let colMap;
   if (hasHeader) {
+    colMap = matchHeader(raw[0]);
     startIdx = 1;
-    firstRow.forEach((c, i) => {
-      if (c.includes('姓名') || c.includes('name')) colMap.name = i;
-      else if (c.includes('电话') || c.includes('手机') || c.includes('phone')) colMap.phone = i;
-      else if (c.includes('备注') || c.includes('note') || c.includes('remark')) colMap.note = i;
-    });
+  } else {
+    colMap = detectByContent(raw);
   }
+  const dataRows = raw.slice(startIdx);
 
   const existingPhones = new Set(load().map(x => x.phone));
   const seenPhones = new Set();
@@ -675,13 +784,14 @@ function doParse() {
   let skipInvalid = 0, skipDupExisting = 0, skipDupInFile = 0;
 
   const previewHtml = [];
-  for (let i = startIdx; i < raw.length; i++) {
-    const r = raw[i];
-    const name = (r[colMap.name] || '').trim();
-    const phone = cleanPhone(r[colMap.phone]);
-    const note = (r[colMap.note] || '').trim();
+  for (let i = 0; i < dataRows.length; i++) {
+    const r = dataRows[i];
+    const c = buildContact(r, colMap);
+    const name = c.name;
+    const phone = c.phone;
+    const note = c.note;
 
-    if (!name || !/^1\d{10}$/.test(phone)) {
+    if (!/^1\d{10}$/.test(phone)) {
       skipInvalid++;
       previewHtml.push(`<tr><td>${escapeHtml(name)||'-'}</td><td>${escapeHtml(phone)||'-'}</td><td>${escapeHtml(note)}</td><td class="row-skip">无效</td></tr>`);
       continue;
@@ -703,7 +813,7 @@ function doParse() {
 
   document.getElementById('parseResult').style.display = 'block';
   document.getElementById('parseSummary').innerHTML =
-    `共解析 <b>${raw.length - startIdx}</b> 行：` +
+    `共解析 <b>${dataRows.length}</b> 行：` +
     `<span class="row-ok">新增 ${parsedRows.length}</span> · ` +
     `<span class="row-dup">重复 ${skipDupExisting + skipDupInFile}</span> · ` +
     `<span class="row-skip">无效 ${skipInvalid}</span>`;
