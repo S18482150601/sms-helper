@@ -55,7 +55,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 
 <div class="card">
   <h3>1. 上传Excel表格</h3>
-  <p class="desc">表格第一行为表头，<b>必须包含【手机号】列</b>，支持姓名等自定义字段。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
+  <p class="desc">表头里有<b>【手机号】/【电话】/【联系方式】</b>任意一列即可（自动识别，表头不必在第一行），其余列如姓名可用 {列名} 引用。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   <div id="fileTip" class="tip"></div>
   <div class="btn-row">
@@ -232,6 +232,24 @@ function normPhone(p) {
   if (s.length === 12 && s.charAt(0) === '0' && s.charAt(1) === '1') s = s.slice(1); // 前导 0
   return s;
 }
+/* 自动识别号码列：优先精确匹配常见表头，其次模糊匹配包含关系 */
+function findPhoneIndex(hdr) {
+  var exact = ['手机号', '手机号码', '手机', '电话号码', '联系电话', '联系方式', '电话', '号码', 'phone', 'mobile', 'tel'];
+  var i, k;
+  for (k = 0; k < exact.length; k++) {
+    for (i = 0; i < hdr.length; i++) {
+      var h = String(hdr[i] === undefined || hdr[i] === null ? '' : hdr[i]).trim().toLowerCase().replace(/[\s()（）:：]/g, '');
+      if (h === exact[k]) return i;
+    }
+  }
+  for (k = 0; k < exact.length; k++) {
+    for (i = 0; i < hdr.length; i++) {
+      var h2 = String(hdr[i] === undefined || hdr[i] === null ? '' : hdr[i]).trim().toLowerCase();
+      if (h2.indexOf(exact[k]) !== -1) return i;
+    }
+  }
+  return -1;
+}
 function phoneOfRow(idx) {
   var row = tableData[idx] || [];
   var v = row[phoneIdx];
@@ -372,18 +390,32 @@ $('fileInput').addEventListener('change', function (e) {
       var json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       if (!json.length || json.length < 2) { setTip('表格数据太少，至少需要一行表头 + 一行数据', true); return; }
 
-      header = (json[0] || []).map(function (h) {
-        return (h === undefined || h === null) ? '' : String(h).trim();
-      });
-      phoneIdx = header.indexOf('手机号');
-      if (phoneIdx === -1) {
+      /* 表头不一定在第一行（企查查等导出常带标题行），前 10 行里找第一个含号码列的表头 */
+      var headerRow = -1;
+      for (var r = 0; r < Math.min(json.length, 10); r++) {
+        if (findPhoneIndex(json[r] || []) !== -1) { headerRow = r; break; }
+      }
+      if (headerRow === -1) {
         header = []; tableData = [];
         renderTable(); updateProgress();
-        setTip('表头缺少【手机号】列，请检查第一行表头', true);
+        var found = (json[0] || []).map(function (h) { return String(h === undefined || h === null ? '' : h).trim(); })
+          .filter(function (s) { return s; }).slice(0, 8).join('、');
+        setTip('没找到号码列。当前表头是：' + (found || '（空）') + '。请把号码那列的标题改成【手机号】或【电话】', true);
         return;
       }
 
-      tableData = json.slice(1).filter(function (row) {
+      header = (json[headerRow] || []).map(function (h) {
+        return (h === undefined || h === null) ? '' : String(h).trim();
+      });
+      phoneIdx = findPhoneIndex(header);
+      if (phoneIdx === -1) {
+        header = []; tableData = [];
+        renderTable(); updateProgress();
+        setTip('没找到号码列，请把号码那列的标题改成【手机号】或【电话】', true);
+        return;
+      }
+
+      tableData = json.slice(headerRow + 1).filter(function (row) {
         if (!row || row.length === 0) return false;
         var p = row[phoneIdx];
         return p !== undefined && p !== null && String(p).trim() !== '';
@@ -786,7 +818,7 @@ function restoreState() {
   runTotal = st.runTotal || queue.length;
   runSent = st.runSent || 0;
   retryCount = 0;
-  phoneIdx = header.indexOf('手机号');
+  phoneIdx = findPhoneIndex(header);
   if (typeof st.template === 'string') $('template').value = st.template;
 
   /* 队列清洗：把“已发送过的号码”和“重复号码”从队列里彻底剔除，
