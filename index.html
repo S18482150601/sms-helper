@@ -55,7 +55,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 
 <div class="card">
   <h3>1. 上传Excel表格</h3>
-  <p class="desc">表头里有<b>【手机号】/【电话】/【联系方式】</b>任意一列即可（自动识别，表头不必在第一行），其余列如姓名可用 {列名} 引用。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
+  <p class="desc"><b>不需要表头</b>——自动扫描各列，找出 11 位手机号最多的那一列；有表头（手机号 / 电话 / 联系方式）也能识别，表头不在第一行也行。模板里可用 {列名} 引用该列内容。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   <div id="fileTip" class="tip"></div>
   <div class="btn-row">
@@ -250,10 +250,33 @@ function findPhoneIndex(hdr) {
   }
   return -1;
 }
+/* 单元格是否是手机号（容忍 +86、空格、横线、括号，允许一格多号取第一个） */
+function pickPhone(v) {
+  var s = String(v === undefined || v === null ? '' : v);
+  var m = s.match(/1[3-9]\d(?:[-\s]?\d{4}){2}/);
+  if (m) return m[0].replace(/[^0-9]/g, '');
+  return s.trim();
+}
+function isPhoneCell(v) {
+  return /^1[3-9]\d{9}$/.test(pickPhone(v));
+}
+/* 按数据分布找号码列：哪一列手机号最多就用哪一列，完全不需要表头 */
+function detectPhoneColumn(rows) {
+  var counts = {}, best = -1, bestN = 0;
+  var scan = Math.min(rows.length, 200);
+  for (var r = 0; r < scan; r++) {
+    var row = rows[r] || [];
+    for (var c = 0; c < row.length; c++) {
+      if (!isPhoneCell(row[c])) continue;
+      counts[c] = (counts[c] || 0) + 1;
+      if (counts[c] > bestN) { bestN = counts[c]; best = c; }
+    }
+  }
+  return bestN > 0 ? best : -1;
+}
 function phoneOfRow(idx) {
   var row = tableData[idx] || [];
-  var v = row[phoneIdx];
-  return String(v === undefined || v === null ? '' : v).trim();
+  return pickPhone(row[phoneIdx]);
 }
 function alreadySent(phone) {
   var k = normPhone(phone);
@@ -390,35 +413,54 @@ $('fileInput').addEventListener('change', function (e) {
       var json = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
       if (!json.length || json.length < 2) { setTip('表格数据太少，至少需要一行表头 + 一行数据', true); return; }
 
-      /* 表头不一定在第一行（企查查等导出常带标题行），前 10 行里找第一个含号码列的表头 */
+      /* 号码列识别顺序：
+       * 1) 看表头关键词（手机号/电话/联系方式…）
+       * 2) 看数据本身——哪一列手机号最密集就用哪一列（没有表头也能认）
+       * 表头也不要求在第一行，前 10 行里找。 */
       var headerRow = -1;
       for (var r = 0; r < Math.min(json.length, 10); r++) {
         if (findPhoneIndex(json[r] || []) !== -1) { headerRow = r; break; }
       }
-      if (headerRow === -1) {
+      var kwIdx = headerRow === -1 ? -1 : findPhoneIndex(json[headerRow] || []);
+      var dataIdx = detectPhoneColumn(json);
+
+      if (dataIdx !== -1) {
+        phoneIdx = dataIdx;
+      } else if (kwIdx !== -1) {
+        phoneIdx = kwIdx;
+      } else {
         header = []; tableData = [];
         renderTable(); updateProgress();
         var found = (json[0] || []).map(function (h) { return String(h === undefined || h === null ? '' : h).trim(); })
           .filter(function (s) { return s; }).slice(0, 8).join('、');
-        setTip('没找到号码列。当前表头是：' + (found || '（空）') + '。请把号码那列的标题改成【手机号】或【电话】', true);
+        setTip('没找到手机号。当前第一行是：' + (found || '（空）') + '，请确认表格里确实有 11 位手机号', true);
         return;
       }
 
-      header = (json[headerRow] || []).map(function (h) {
-        return (h === undefined || h === null) ? '' : String(h).trim();
-      });
-      phoneIdx = findPhoneIndex(header);
-      if (phoneIdx === -1) {
-        header = []; tableData = [];
-        renderTable(); updateProgress();
-        setTip('没找到号码列，请把号码那列的标题改成【手机号】或【电话】', true);
-        return;
+      /* 没有表头关键词时，判断第一行是不是表头：该列首行不是号码 → 当表头 */
+      if (headerRow === -1) {
+        var firstCell = String((json[0] || [])[phoneIdx] === undefined ? '' : (json[0] || [])[phoneIdx]).trim();
+        headerRow = (json.length > 1 && !isPhoneCell(firstCell)) ? 0 : -1;
       }
 
-      tableData = json.slice(headerRow + 1).filter(function (row) {
+      if (headerRow === -1) {
+        /* 纯数据表：不设表头，列名自动生成为“列1、列2…” */
+        header = [];
+        var maxCol = 0;
+        json.forEach(function (row) { if (row && row.length > maxCol) maxCol = row.length; });
+        for (var ci = 0; ci < maxCol; ci++) header.push('列' + (ci + 1));
+        tableData = json.slice();
+      } else {
+        header = (json[headerRow] || []).map(function (h, i) {
+          var s = (h === undefined || h === null) ? '' : String(h).trim();
+          return s || ('列' + (i + 1));
+        });
+        tableData = json.slice(headerRow + 1);
+      }
+
+      tableData = tableData.filter(function (row) {
         if (!row || row.length === 0) return false;
-        var p = row[phoneIdx];
-        return p !== undefined && p !== null && String(p).trim() !== '';
+        return isPhoneCell(row[phoneIdx]);
       });
 
       /* 号码上限：超过 4000 条只保留前 4000 条，其余自动截断 */
@@ -819,6 +861,8 @@ function restoreState() {
   runSent = st.runSent || 0;
   retryCount = 0;
   phoneIdx = findPhoneIndex(header);
+  if (phoneIdx === -1) phoneIdx = detectPhoneColumn(tableData);
+  if (phoneIdx === -1) phoneIdx = 0;
   if (typeof st.template === 'string') $('template').value = st.template;
 
   /* 队列清洗：把“已发送过的号码”和“重复号码”从队列里彻底剔除，
