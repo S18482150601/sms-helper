@@ -58,6 +58,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
   <p class="desc"><b>不需要表头</b>——自动扫描各列，找出 11 位手机号最多的那一列；有表头（手机号 / 电话 / 联系方式）也能识别，表头不在第一行也行。模板里可用 {列名} 引用该列内容。支持 .xlsx / .xls / .csv。电话号码<b>上限 4000 条</b>，超出部分自动截断。</p>
   <input type="file" id="fileInput" accept=".xlsx,.xls,.csv">
   <div id="fileTip" class="tip"></div>
+  <div id="nameColRow" class="tip" style="display:none">姓名列：<select id="nameColSel"></select></div>
   <div class="btn-row">
     <button id="selectAll" class="gray" type="button">全选</button>
     <button id="unSelectAll" class="gray" type="button">取消全选</button>
@@ -69,6 +70,7 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
   <h3>2. 短信模板</h3>
   <p class="desc">示例：尊敬的{姓名}，您好！通知内容……<br>{姓名} 会自动匹配表格里的姓名/联系人/法人/企业名称列，无需知道列名；也可以用 {任意列名} 读取该列内容。</p>
   <textarea id="template" rows="4" placeholder="例如：尊敬的{姓名}，您好！（{姓名} 自动识别姓名列）">尊敬的{姓名}，您好！</textarea>
+  <div id="previewBox" class="tip" style="display:none"></div>
 </div>
 
 <div class="card">
@@ -162,8 +164,52 @@ function escHtml(s) {
 /* 模板变量替换：{列名} -> 对应列的值；{姓名} 等称谓自动指向识别出的姓名列 */
 var NAME_ALIASES = ['姓名', '名字', '联系人', '客户姓名', '客户名称', '客户', '法人',
                     '法定代表人', '负责人', '老板', '店主', '联系人姓名', '名称', '企业名称', '公司名称', '公司', '单位'];
+var nameIdxUser = -1;   // 用户手动指定的姓名列（-1 表示自动）
+
+/* 全角花括号、括号内空格统一成标准写法，避免 { 姓名 } / ｛姓名｝ 匹配不到 */
+function normBraces(tpl) {
+  return String(tpl === undefined || tpl === null ? '' : tpl)
+    .replace(/[｛{]\s*([^{}｛｝]{1,40}?)\s*[｝}]/g, function (m, k) { return '{' + k + '}'; });
+}
+
+/* 从一行里取姓名：指定列 > 像人名的列 > 号码格里的姓名 > 公司名兜底 */
+function pickNameCell(row) {
+  row = row || [];
+  var i, s;
+  if (nameIdx >= 0 && nameIdx !== phoneIdx) {
+    s = String(row[nameIdx] === undefined || row[nameIdx] === null ? '' : row[nameIdx]).trim();
+    if (s && !NAME_STOP.test(s) && !/1[3-9]\d{9}/.test(s)) return s;
+  }
+  /* 号码列里写成“张三 13800138000”时，先把人名抠出来 */
+  if (phoneIdx >= 0 && phoneIdx < row.length) {
+    var pc = String(row[phoneIdx] === undefined || row[phoneIdx] === null ? '' : row[phoneIdx]).trim();
+    if (/1[3-9]\d{9}/.test(pc)) {
+      var pn = pc.replace(/1[3-9]\d{9}/g, '').replace(/[+()（）\-\s,，、;；:：]/g, '');
+      if (/^[\u4e00-\u9fa5·]{2,4}$/.test(pn) && !ORG_WORDS.test(pn) && !NAME_STOP.test(pn)) return pn;
+    }
+  }
+  for (i = 0; i < row.length; i++) {
+    if (i === phoneIdx) continue;
+    s = String(row[i] === undefined || row[i] === null ? '' : row[i]).trim();
+    if (!s) continue;
+    if (/1[3-9]\d{9}/.test(s)) {
+      /* 一格写了“张三 13800138000”时，取出人名部分 */
+      var t = s.replace(/1[3-9]\d{9}/g, '').replace(/[+()（）\-\s,，、;；:：]/g, '');
+      if (/^[\u4e00-\u9fa5·]{2,4}$/.test(t) && !ORG_WORDS.test(t)) return t;
+      continue;
+    }
+    if (isNameCell(s)) return s;
+  }
+  for (i = 0; i < row.length; i++) {
+    if (i === phoneIdx) continue;
+    s = String(row[i] === undefined || row[i] === null ? '' : row[i]).trim();
+    if (s && ORG_WORDS.test(s)) return s;
+  }
+  return '';
+}
+
 function getMsg(row) {
-  var tpl = $('template').value;
+  var tpl = normBraces($('template').value);
   header.forEach(function (key, i) {
     if (key === '') return;
     var reg = new RegExp('\\{' + escapeReg(key) + '\\}', 'g');
@@ -172,14 +218,30 @@ function getMsg(row) {
       return (v === undefined || v === null) ? '' : String(v).trim();
     });
   });
-  if (nameIdx >= 0) {
-    var nv = row[nameIdx];
-    nv = (nv === undefined || nv === null) ? '' : String(nv).trim();
-    NAME_ALIASES.forEach(function (a) {
-      tpl = tpl.split('{' + a + '}').join(nv);
-    });
-  }
+  var nv = nameIdxUser >= 0
+    ? String((row[nameIdxUser] === undefined || row[nameIdxUser] === null) ? '' : row[nameIdxUser]).trim()
+    : pickNameCell(row);
+  NAME_ALIASES.forEach(function (a) {
+    tpl = tpl.split('{' + a + '}').join(nv);
+  });
   return tpl;
+}
+
+/* 预览第一条待发短信，方便确认 {姓名} 是否被替换 */
+function updatePreview() {
+  var box = $('previewBox');
+  if (!box) return;
+  if (!tableData.length || phoneIdx < 0) { box.style.display = 'none'; return; }
+  var idx = 0, i;
+  for (i = 0; i < tableData.length; i++) {
+    if (!alreadySent(phoneOfRow(i))) { idx = i; break; }
+  }
+  var row = tableData[idx] || [];
+  var phone = pickPhone(row[phoneIdx]);
+  var msg = getMsg(row);
+  box.style.display = '';
+  box.innerHTML = '<b>预览</b>（发给 ' + escHtml(phone) + '）：<br>'
+    + escHtml(msg).replace(/\n/g, '<br>');
 }
 
 function setTip(text, isErr) {
@@ -296,6 +358,9 @@ var NAME_KEYS = ['姓名', '联系人姓名', '联系人', '客户姓名', '客�
                  '企业名称', '公司名称', '名称', '公司', '单位', 'name', 'contact'];
 var ORG_WORDS = /公司|有限|集团|工厂|厂|店|中心|工作室|事务所|科技|银行|学校|医院|协会|合作社|商行|经营部|服务部|门市|超市|酒店|宾馆|餐饮|物流|贸易|实业|控股|投资/;
 
+/* 明显不是姓名的常见列值，防止把“备注/状态/地址”当成人名 */
+var NAME_STOP = /^(备注|说明|地址|详细地址|注册地址|经营地址|所在地|行业|行业分类|状态|经营状态|来源|数据来源|时间|日期|类型|企业类型|公司类型|标签|分组|序号|编号|电话|手机|手机号|联系方式|邮箱|网址|简介|描述|规模|注册资本|成立日期|统一社会信用代码|纳税人识别号|登记机关)$/;
+
 /* 看表头找姓名列 */
 function findNameIndex(hdr) {
   var i, k;
@@ -318,12 +383,14 @@ function findNameIndex(hdr) {
 function isNameCell(v) {
   var s = String(v === undefined || v === null ? '' : v).trim();
   if (!s || s.length > 20) return false;
-  s = s.replace(/(先生|女士|小姐)$/, '');
-  if (/^[A-Za-z][A-Za-z.\- ]{1,19}$/.test(s)) return true;
-  if (!/^[\u4e00-\u9fa5·]{2,4}$/.test(s)) return false;
-  if (ORG_WORDS.test(s)) return false;
-  if (/[业市区省县镇村街路号楼室部局院校司行会社员]$/.test(s)) return false;
-  if (/^(先生|女士|小姐|客户|暂无|未知|无|null)$/.test(s)) return false;
+  if (NAME_STOP.test(s)) return false;
+  var core = s.replace(/(先生|女士|小姐)$/, '');
+  if (core.length < 2) core = s;          // “张先生”这类，去掉称谓后只剩 1 个字，保留原文判断
+  if (/^[A-Za-z][A-Za-z.\- ]{1,19}$/.test(core)) return true;
+  if (!/^[\u4e00-\u9fa5·]{2,4}$/.test(core)) return false;
+  if (ORG_WORDS.test(core)) return false;
+  if (/[业市区省县镇村街路号楼室部局院校司行会社员]$/.test(core)) return false;
+  if (/^(先生|女士|小姐|客户|暂无|未知|无|null)$/.test(core)) return false;
   return true;
 }
 
@@ -542,6 +609,7 @@ $('fileInput').addEventListener('change', function (e) {
       }
 
       nameIdx = resolveNameIndex();
+      nameIdxUser = -1;
 
       if (!tableData.length) {
         renderTable(); updateProgress();
@@ -567,8 +635,29 @@ $('fileInput').addEventListener('change', function (e) {
       setTip('读取成功，共 ' + tableData.length + ' 条联系人'
         + (overflow ? '；表格共 ' + (tableData.length + overflow) + ' 条号码，已按上限保留前 ' + MAX_PHONES + ' 条、截断 ' + overflow + ' 条' : '')
         + (dupUnchecked ? '；其中 ' + dupUnchecked + ' 个号码此前已发送过，已自动取消勾选' : '')
-        + (nameIdx >= 0 && header[nameIdx] ? '；姓名取自「' + header[nameIdx].replace(/^列(\d+)$/, '第$1列') + '」' : '；未识别到姓名列，{姓名} 会留空')
+        + (nameIdx >= 0 && header[nameIdx] ? '；姓名取自「' + header[nameIdx].replace(/^列(\d+)$/, '第$1列') + '」' : '；未识别到姓名列，请在下方手动选择')
         + '（请勾选待发送号码）', overflow > 0);
+
+      /* 姓名列选择器：显示自动识别结果，也可手动改成别的列 */
+      var sel = $('nameColSel');
+      if (sel) {
+        sel.innerHTML = '';
+        var autoOpt = document.createElement('option');
+        autoOpt.value = '-1';
+        autoOpt.textContent = '自动识别' + (nameIdx >= 0 && header[nameIdx]
+          ? '（' + header[nameIdx].replace(/^列(\d+)$/, '第$1列') + '）' : '（未识别，请手动选）');
+        sel.appendChild(autoOpt);
+        header.forEach(function (h, i) {
+          if (i === phoneIdx) return;
+          var o = document.createElement('option');
+          o.value = String(i);
+          o.textContent = h.replace(/^列(\d+)$/, '第$1列') + (i === nameIdx ? '（推荐）' : '');
+          sel.appendChild(o);
+        });
+        sel.value = '-1';
+        $('nameColRow').style.display = '';
+      }
+      updatePreview();
     } catch (err) {
       setTip('文件解析失败：' + (err && err.message ? err.message : err), true);
     }
@@ -588,6 +677,14 @@ $('unSelectAll').addEventListener('click', function () {
   var mc = $('mainCheck'); if (mc) mc.checked = false;
   updateProgress();
 });
+
+/* 手动指定姓名列 / 改模板时，实时刷新短信预览 */
+$('nameColSel').addEventListener('change', function () {
+  var v = parseInt(this.value, 10);
+  nameIdxUser = isNaN(v) ? -1 : v;
+  updatePreview();
+});
+$('template').addEventListener('input', updatePreview);
 $('tableBox').addEventListener('change', function (e) {
   var t = e.target;
   if (t.id === 'mainCheck') {
