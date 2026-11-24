@@ -67,8 +67,8 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 
 <div class="card">
   <h3>2. 短信模板</h3>
-  <p class="desc">示例：尊敬的{姓名}，您好！通知内容……（用 {列名} 读取表格对应列的内容）</p>
-  <textarea id="template" rows="4" placeholder="输入短信模板，使用{列名}读取表格内容">尊敬的{姓名}，您好！</textarea>
+  <p class="desc">示例：尊敬的{姓名}，您好！通知内容……<br>{姓名} 会自动匹配表格里的姓名/联系人/法人/企业名称列，无需知道列名；也可以用 {任意列名} 读取该列内容。</p>
+  <textarea id="template" rows="4" placeholder="例如：尊敬的{姓名}，您好！（{姓名} 自动识别姓名列）">尊敬的{姓名}，您好！</textarea>
 </div>
 
 <div class="card">
@@ -96,7 +96,8 @@ thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
 /* ---------------- 全局状态 ---------------- */
 var header = [];        // 表头（已 trim）
 var tableData = [];     // 正文数据行（二维数组）
-var phoneIdx = -1;      // 【手机号】列下标
+var phoneIdx = -1;      // 手机号列下标
+var nameIdx = -1;       // 姓名/名称列下标（供 {姓名} 等称谓使用）
 var queue = [];         // 待发送队列：[{rowIdx}]
 var currentIndex = 0;   // 当前处理到第几条
 var sendLog = [];       // 发送记录：{手机号, 短信内容, 唤起时间}
@@ -158,7 +159,9 @@ function escHtml(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
-/* 模板变量替换：{姓名} -> 对应列的值 */
+/* 模板变量替换：{列名} -> 对应列的值；{姓名} 等称谓自动指向识别出的姓名列 */
+var NAME_ALIASES = ['姓名', '名字', '联系人', '客户姓名', '客户名称', '客户', '法人',
+                    '法定代表人', '负责人', '老板', '店主', '联系人姓名', '名称', '企业名称', '公司名称', '公司', '单位'];
 function getMsg(row) {
   var tpl = $('template').value;
   header.forEach(function (key, i) {
@@ -166,9 +169,16 @@ function getMsg(row) {
     var reg = new RegExp('\\{' + escapeReg(key) + '\\}', 'g');
     tpl = tpl.replace(reg, function () {
       var v = row[i];
-      return (v === undefined || v === null) ? '' : String(v);
+      return (v === undefined || v === null) ? '' : String(v).trim();
     });
   });
+  if (nameIdx >= 0) {
+    var nv = row[nameIdx];
+    nv = (nv === undefined || nv === null) ? '' : String(nv).trim();
+    NAME_ALIASES.forEach(function (a) {
+      tpl = tpl.split('{' + a + '}').join(nv);
+    });
+  }
   return tpl;
 }
 
@@ -277,6 +287,67 @@ function detectPhoneColumn(rows) {
 function phoneOfRow(idx) {
   var row = tableData[idx] || [];
   return pickPhone(row[phoneIdx]);
+}
+
+/* ---------------- 姓名列识别 ---------------- */
+/* 姓名列表头关键词，按优先级从高到低排列 */
+var NAME_KEYS = ['姓名', '联系人姓名', '联系人', '客户姓名', '客户名称', '客户', '名字',
+                 '法定代表人', '法人', '负责人', '老板', '店主', '姓名/称呼',
+                 '企业名称', '公司名称', '名称', '公司', '单位', 'name', 'contact'];
+var ORG_WORDS = /公司|有限|集团|工厂|厂|店|中心|工作室|事务所|科技|银行|学校|医院|协会|合作社|商行|经营部|服务部|门市|超市|酒店|宾馆|餐饮|物流|贸易|实业|控股|投资/;
+
+/* 看表头找姓名列 */
+function findNameIndex(hdr) {
+  var i, k;
+  for (k = 0; k < NAME_KEYS.length; k++) {
+    for (i = 0; i < hdr.length; i++) {
+      var h = String(hdr[i] === undefined || hdr[i] === null ? '' : hdr[i]).trim().toLowerCase().replace(/[\s()（）:：]/g, '');
+      if (h === NAME_KEYS[k]) return i;
+    }
+  }
+  for (k = 0; k < NAME_KEYS.length; k++) {
+    for (i = 0; i < hdr.length; i++) {
+      var h2 = String(hdr[i] === undefined || hdr[i] === null ? '' : hdr[i]).trim();
+      if (h2.indexOf(NAME_KEYS[k]) !== -1) return i;
+    }
+  }
+  return -1;
+}
+
+/* 单元格像不像人名：2~4 个汉字（可带“先生/女士”），或英文名；排除公司名和常见非姓名词 */
+function isNameCell(v) {
+  var s = String(v === undefined || v === null ? '' : v).trim();
+  if (!s || s.length > 20) return false;
+  s = s.replace(/(先生|女士|小姐)$/, '');
+  if (/^[A-Za-z][A-Za-z.\- ]{1,19}$/.test(s)) return true;
+  if (!/^[\u4e00-\u9fa5·]{2,4}$/.test(s)) return false;
+  if (ORG_WORDS.test(s)) return false;
+  if (/[业市区省县镇村街路号楼室部局院校司行会社员]$/.test(s)) return false;
+  if (/^(先生|女士|小姐|客户|暂无|未知|无|null)$/.test(s)) return false;
+  return true;
+}
+
+/* 没有表头时按数据分布找姓名列 */
+function detectNameColumn(rows, exclude) {
+  var counts = {}, best = -1, bestN = 0;
+  var scan = Math.min(rows.length, 200);
+  for (var r = 0; r < scan; r++) {
+    var row = rows[r] || [];
+    for (var c = 0; c < row.length; c++) {
+      if (c === exclude) continue;
+      if (!isNameCell(row[c])) continue;
+      counts[c] = (counts[c] || 0) + 1;
+      if (counts[c] > bestN) { bestN = counts[c]; best = c; }
+    }
+  }
+  return bestN >= Math.max(1, Math.ceil(scan * 0.2)) ? best : -1;
+}
+
+/* 综合判定姓名列：表头优先，其次看数据 */
+function resolveNameIndex() {
+  var i = findNameIndex(header);
+  if (i !== -1 && i !== phoneIdx) return i;
+  return detectNameColumn(tableData, phoneIdx);
 }
 function alreadySent(phone) {
   var k = normPhone(phone);
@@ -470,6 +541,8 @@ $('fileInput').addEventListener('change', function (e) {
         tableData = tableData.slice(0, MAX_PHONES);
       }
 
+      nameIdx = resolveNameIndex();
+
       if (!tableData.length) {
         renderTable(); updateProgress();
         setTip('表格里没有可用的手机号数据', true);
@@ -494,6 +567,7 @@ $('fileInput').addEventListener('change', function (e) {
       setTip('读取成功，共 ' + tableData.length + ' 条联系人'
         + (overflow ? '；表格共 ' + (tableData.length + overflow) + ' 条号码，已按上限保留前 ' + MAX_PHONES + ' 条、截断 ' + overflow + ' 条' : '')
         + (dupUnchecked ? '；其中 ' + dupUnchecked + ' 个号码此前已发送过，已自动取消勾选' : '')
+        + (nameIdx >= 0 && header[nameIdx] ? '；姓名取自「' + header[nameIdx].replace(/^列(\d+)$/, '第$1列') + '」' : '；未识别到姓名列，{姓名} 会留空')
         + '（请勾选待发送号码）', overflow > 0);
     } catch (err) {
       setTip('文件解析失败：' + (err && err.message ? err.message : err), true);
@@ -863,6 +937,7 @@ function restoreState() {
   phoneIdx = findPhoneIndex(header);
   if (phoneIdx === -1) phoneIdx = detectPhoneColumn(tableData);
   if (phoneIdx === -1) phoneIdx = 0;
+  nameIdx = resolveNameIndex();
   if (typeof st.template === 'string') $('template').value = st.template;
 
   /* 队列清洗：把“已发送过的号码”和“重复号码”从队列里彻底剔除，
