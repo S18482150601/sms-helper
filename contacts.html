@@ -3,26 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0b0d12">
 <title>客户联系表 · 一键拨号 / 短信</title>
 <style>
+  :root{
+    --bg:#0b0d12; --surface:#14181f; --surface-2:#0f1319; --line:#232a35;
+    --text:#e7eaf0; --muted:#8b94a3; --muted-2:#6b7484;
+    --accent:#3d6fe0; --accent-soft:#1a2338; --ok:#1f7a4d; --warn:#c08a2e; --err:#b4434d;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: #f5f6fa;
-    color: #2c3e50;
+    background: var(--bg);
+    background-image: radial-gradient(120% 60% at 50% -10%, #151b26 0%, #0b0d12 60%);
+    color: var(--text);
     padding: 12px;
     padding-bottom: 80px;
+    font-size: 15px;
+    line-height: 1.55;
   }
   .header {
-    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-    color: #fff;
-    padding: 16px;
-    border-radius: 12px;
+    background: #12161d;
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 14px 16px;
+    border-radius: 10px;
     margin-bottom: 12px;
-    box-shadow: 0 2px 8px rgba(30,60,114,0.2);
   }
-  .header h1 { font-size: 18px; font-weight: 600; margin-bottom: 4px; }
-  .header p { font-size: 12px; opacity: 0.85; }
+  .header h1 {
+    font-size: 15px; font-weight: 600; margin-bottom: 4px;
+    letter-spacing: .02em; display: flex; align-items: center; gap: 8px;
+  }
+  .header h1::before {
+    content: ""; width: 2px; height: 14px; background: var(--accent); border-radius: 2px; flex: none;
+  }
+  .header p { font-size: 12px; color: var(--muted); }
 
   .toolbar {
     display: flex;
@@ -31,89 +46,106 @@
     flex-wrap: wrap;
   }
   .btn {
-    border: none;
+    border: 1px solid transparent;
     border-radius: 8px;
-    padding: 10px 14px;
-    font-size: 14px;
+    padding: 9px 13px;
+    font-size: 13.5px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: filter .15s, background .15s;
     font-weight: 500;
+    font-family: inherit;
+    background: transparent;
+    color: var(--text);
   }
-  .btn:active { transform: scale(0.96); }
-  .btn-primary { background: #2a5298; color: #fff; }
-  .btn-success { background: #27ae60; color: #fff; }
-  .btn-warn { background: #f39c12; color: #fff; }
-  .btn-danger { background: #e74c3c; color: #fff; }
-  .btn-sm { padding: 6px 10px; font-size: 12px; border-radius: 6px; }
+  .btn:active { filter: brightness(.9); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-success { background: var(--ok); color: #fff; }
+  .btn-warn { background: transparent; border-color: #2c3543; color: #c3cbd8; }
+  .btn-accent { background: transparent; border-color: #2a3a5c; color: #8fb0f5; }
+  .btn-neutral { background: transparent; border-color: #2c3543; color: #b6c0cf; }
+  .btn-ghost { background: transparent; border-color: #2c3543; color: #a9b6c9; }
+  .btn-danger { background: transparent; border-color: #4a2a2e; color: #d2858c; }
+  .btn-sm { padding: 5px 9px; font-size: 12px; border-radius: 6px; }
+  .btn:disabled { background: #1c222c; border-color: #242c38; color: #5c6575; cursor: not-allowed; }
 
   .search-box {
     flex: 1;
     min-width: 140px;
-    padding: 10px 12px;
-    border: 1px solid #ddd;
+    padding: 9px 12px;
+    border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 14px;
     outline: none;
+    background: var(--surface-2);
+    color: var(--text);
+    font-family: inherit;
+    transition: border-color .15s, box-shadow .15s;
   }
-  .search-box:focus { border-color: #2a5298; }
+  .search-box::placeholder { color: #4f5867; }
+  .search-box:focus { border-color: var(--accent); box-shadow: 0 0 0 3px #3d6fe022; }
 
   .table-wrap {
-    background: #fff;
-    border-radius: 12px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
     overflow: hidden;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
   }
   table { width: 100%; border-collapse: collapse; }
   th, td {
-    padding: 12px 10px;
+    padding: 11px 10px;
     text-align: left;
-    border-bottom: 1px solid #f0f0f0;
-    font-size: 14px;
+    border-bottom: 1px solid #1e2530;
+    font-size: 13.5px;
   }
   th {
-    background: #fafbfc;
-    font-weight: 600;
-    color: #7f8c8d;
-    font-size: 12px;
+    background: #1a2029;
+    font-weight: 500;
+    color: #93a0b4;
+    font-size: 11.5px;
+    letter-spacing: .04em;
     position: sticky;
     top: 0;
+    border-bottom: 1px solid var(--line);
   }
   tr:last-child td { border-bottom: none; }
-  tr:active { background: #f8f9fb; }
+  tr:active { background: #171d27; }
 
-  .name { font-weight: 600; }
-  .phone { font-family: "SF Mono", Menlo, monospace; color: #2a5298; }
-  .note { color: #95a5a6; font-size: 12px; }
+  .name { font-weight: 600; color: var(--text); }
+  .phone { font-family: "SF Mono", Menlo, Consolas, monospace; color: #8fb0f5; letter-spacing: .02em; }
+  .note { color: var(--muted-2); font-size: 12.5px; }
 
   .action-cell { white-space: nowrap; }
   .action-cell a {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 50%;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
     margin-right: 6px;
     text-decoration: none;
-    color: #fff;
-    font-size: 16px;
+    color: #dfe6f2;
+    font-size: 15px;
+    border: 1px solid transparent;
   }
-  .call-btn { background: #27ae60; }
-  .sms-btn { background: #3498db; }
-  .del-btn { background: #e74c3c; width: 28px; height: 28px; font-size: 12px; }
+  .call-btn { background: #1a5f42; border-color: #236b4c; }
+  .sms-btn { background: #24395e; border-color: #2c4670; }
+  .del-btn { background: transparent; border-color: #4a2a2e; color: #d2858c; width: 28px; height: 28px; font-size: 12px; }
 
   .empty {
     text-align: center;
     padding: 40px 20px;
-    color: #bdc3c7;
-    font-size: 14px;
+    color: #5c6575;
+    font-size: 13.5px;
   }
 
   .modal-mask {
     display: none;
     position: fixed;
     inset: 0;
-    background: rgba(0,0,0,0.5);
+    background: rgba(4,6,10,.72);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
     z-index: 100;
     align-items: center;
     justify-content: center;
@@ -121,32 +153,39 @@
   }
   .modal-mask.show { display: flex; }
   .modal {
-    background: #fff;
-    border-radius: 14px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
     width: 100%;
     max-width: 420px;
     padding: 20px;
     max-height: 90vh;
     overflow-y: auto;
   }
-  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .modal h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; letter-spacing: .02em; }
   .form-group { margin-bottom: 12px; }
   .form-group label {
     display: block;
     font-size: 12px;
-    color: #7f8c8d;
-    margin-bottom: 4px;
+    color: var(--muted);
+    margin-bottom: 5px;
   }
   .form-group input, .form-group textarea, .form-group select {
     width: 100%;
     padding: 10px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--line);
     border-radius: 8px;
     font-size: 14px;
     outline: none;
     font-family: inherit;
+    background: var(--surface-2);
+    color: var(--text);
+    transition: border-color .15s, box-shadow .15s;
   }
-  .form-group input:focus, .form-group textarea:focus { border-color: #2a5298; }
+  .form-group input::placeholder, .form-group textarea::placeholder { color: #4f5867; }
+  .form-group input:focus, .form-group textarea:focus, .form-group select:focus {
+    border-color: var(--accent); box-shadow: 0 0 0 3px #3d6fe022;
+  }
   .form-group textarea { min-height: 80px; resize: vertical; }
   .modal-actions {
     display: flex;
@@ -157,37 +196,45 @@
 
   .stats {
     font-size: 12px;
-    color: #7f8c8d;
+    color: var(--muted-2);
     margin-bottom: 8px;
     padding: 0 4px;
+    font-variant-numeric: tabular-nums;
   }
 
   .import-tabs {
     display: flex;
     gap: 0;
     margin-bottom: 12px;
-    border-bottom: 2px solid #ecf0f1;
+    border-bottom: 1px solid var(--line);
   }
   .import-tab {
     flex: 1;
     padding: 10px;
     border: none;
     background: transparent;
-    font-size: 14px;
-    color: #7f8c8d;
+    font-size: 13.5px;
+    color: var(--muted);
     cursor: pointer;
     border-bottom: 2px solid transparent;
-    margin-bottom: -2px;
+    margin-bottom: -1px;
+    font-family: inherit;
   }
   .import-tab.active {
-    color: #2a5298;
+    color: #8fb0f5;
     font-weight: 600;
-    border-bottom-color: #2a5298;
+    border-bottom-color: var(--accent);
   }
   #parsePreview td { padding: 6px 8px; font-size: 12px; }
-  .row-ok { color: #27ae60; }
-  .row-skip { color: #e74c3c; }
-  .row-dup { color: #f39c12; }
+  .row-ok { color: #7fbf9f; }
+  .row-skip { color: #e08a92; }
+  .row-dup { color: #c99b4a; }
+
+  input[type=file] { font-size: 13px; color: var(--muted); }
+  input[type=file]::file-selector-button {
+    background: #1d2532; color: #c3cbd8; border: 1px solid #2c3543;
+    border-radius: 6px; padding: 7px 12px; margin-right: 10px; font-size: 13px; font-family: inherit;
+  }
 
   @media (max-width: 480px) {
     th, td { padding: 10px 6px; font-size: 13px; }
@@ -197,13 +244,14 @@
 </head>
 <body>
 
+
 <div class="header">
   <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">
     <div>
       <h1>客户联系表</h1>
       <p>点击绿色按钮拨号 · 蓝色按钮发短信 · 数据保存在本机</p>
     </div>
-    <a href="index.html" style="color:#fff;text-decoration:none;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:20px;font-size:13px;white-space:nowrap">← 批量短信助手</a>
+    <a href="index.html" style="color:#a9b6c9;text-decoration:none;background:transparent;border:1px solid #2c3543;padding:6px 11px;border-radius:7px;font-size:13px;white-space:nowrap">← 批量短信助手</a>
   </div>
 </div>
 
@@ -212,14 +260,14 @@
   <button class="btn btn-primary" onclick="openAddModal()">+ 添加</button>
   <button class="btn btn-success" onclick="openImportModal()">批量导入</button>
   <button class="btn btn-warn" onclick="openTemplateModal()">短信模板</button>
-  <button class="btn" style="background:#e67e22;color:#fff" onclick="startAutoCall()">连续拨号</button>
-  <button class="btn" id="autoPauseBtn" style="background:#7f8c8d;color:#fff;display:none" onclick="toggleAutoPause()">暂停</button>
-  <button class="btn" style="background:#95a5a6;color:#fff" onclick="exportCSV()">导出</button>
+  <button class="btn btn-accent" onclick="startAutoCall()">连续拨号</button>
+  <button class="btn btn-neutral" id="autoPauseBtn" style="display:none" onclick="toggleAutoPause()">暂停</button>
+  <button class="btn btn-neutral" onclick="exportCSV()">导出</button>
   <button class="btn btn-danger" onclick="clearAllContacts()">清空联系人</button>
 </div>
 
 <div class="stats" id="stats"></div>
-<div id="autoCallStatus" style="display:none;padding:8px 12px;margin:8px 0;background:#fff3e0;color:#e65100;border-radius:6px;font-size:13px;text-align:center"></div>
+<div id="autoCallStatus" style="display:none;padding:10px 12px;margin:8px 0;background:#1e1a12;border:1px solid #4a3a20;color:#dcb37a;border-radius:8px;font-size:13px;text-align:center"></div>
 
 <div class="table-wrap">
   <table>
@@ -253,7 +301,7 @@
       <input type="text" id="fNote" placeholder="如：张总 / 企业贷 / 意向客户">
     </div>
     <div class="modal-actions">
-      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('addModal')">取消</button>
+      <button class="btn btn-ghost" onclick="closeModal('addModal')">取消</button>
       <button class="btn btn-primary" onclick="saveContact()">保存</button>
     </div>
   </div>
@@ -268,7 +316,7 @@
       <textarea id="fTemplate" placeholder="您好，我是XX金融的客户经理..."></textarea>
     </div>
     <div class="modal-actions">
-      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('tplModal')">取消</button>
+      <button class="btn btn-ghost" onclick="closeModal('tplModal')">取消</button>
       <button class="btn btn-success" onclick="saveTemplate()">保存模板</button>
     </div>
   </div>
@@ -303,8 +351,8 @@
     </div>
 
     <div id="parseResult" style="display:none">
-      <div id="parseSummary" style="font-size:13px;margin-bottom:8px;padding:8px;background:#f8f9fb;border-radius:6px"></div>
-      <div style="max-height:200px;overflow-y:auto;border:1px solid #eee;border-radius:6px">
+      <div id="parseSummary" style="font-size:13px;margin-bottom:8px;padding:8px;background:#0f1319;border:1px solid #232a35;border-radius:8px;color:#b6c0cf"></div>
+      <div style="max-height:200px;overflow-y:auto;border:1px solid #232a35;border-radius:8px;background:#0f1319">
         <table style="width:100%;font-size:12px">
           <thead><tr><th>姓名</th><th>电话</th><th>备注</th><th>状态</th></tr></thead>
           <tbody id="parsePreview"></tbody>
@@ -313,7 +361,7 @@
     </div>
 
     <div class="modal-actions">
-      <button class="btn" style="background:#ecf0f1;color:#2c3e50" onclick="closeModal('importModal')">取消</button>
+      <button class="btn btn-ghost" onclick="closeModal('importModal')">取消</button>
       <button class="btn btn-success" id="confirmImportBtn" onclick="confirmImport()" disabled style="opacity:0.5">确认导入</button>
     </div>
   </div>
@@ -510,7 +558,9 @@ function updateAutoCallStatus() {
   if (pauseBtn) {
     pauseBtn.style.display = '';
     pauseBtn.textContent = autoPaused ? '继续拨号' : '暂停';
-    pauseBtn.style.background = autoPaused ? '#27ae60' : '#7f8c8d';
+    pauseBtn.style.background = autoPaused ? '#1f7a4d' : 'transparent';
+    pauseBtn.style.borderColor = autoPaused ? '#1f7a4d' : '#2c3543';
+    pauseBtn.style.color = autoPaused ? '#fff' : '#b6c0cf';
   }
   el.style.display = 'block';
   if (autoCallIndex >= autoCallList.length) {
