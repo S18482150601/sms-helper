@@ -2,8 +2,17 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#0b0d12">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="短信助手">
+<meta name="application-name" content="短信助手">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <title>表格短信助手-无间隔极速自动版</title>
 <!-- 表格解析库：主 CDN，失败自动回退备用 CDN -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
@@ -16,7 +25,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
-body{padding:16px;background:var(--bg);color:var(--text);line-height:1.55;font-size:15px;
+body{padding:16px;padding-top:calc(16px + env(safe-area-inset-top));padding-bottom:calc(24px + env(safe-area-inset-bottom));background:var(--bg);color:var(--text);line-height:1.55;font-size:15px;
   background-image:radial-gradient(120% 60% at 50% -10%,#151b26 0%,#0b0d12 60%)}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 16px;margin-bottom:14px}
 h3{margin-bottom:12px;color:var(--text);font-size:15px;font-weight:600;letter-spacing:.02em;
@@ -1124,6 +1133,37 @@ updateSentInfo();
 if (typeof XLSX === 'undefined') {
   setTip('注意：表格组件未加载成功，上传/导出将不可用，请联网后刷新页面', true);
 }
+</script>
+<script>
+/* PWA：注册 Service Worker；iOS 首次访问提示“添加到主屏幕” */
+(function () {
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./service-worker.js').catch(function () {});
+    });
+  }
+  var isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  var standalone = window.navigator.standalone === true
+    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+  var closed = false;
+  try { closed = !!localStorage.getItem('ios_install_tip_closed'); } catch (e) {}
+  if (!isIOS || standalone || closed) return;
+  var bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:12px;right:12px;bottom:calc(12px + env(safe-area-inset-bottom));z-index:99;'
+    + 'background:#14181f;border:1px solid #2a3a5c;color:#c3cbd8;border-radius:10px;padding:12px 44px 12px 13px;'
+    + 'font-size:12.5px;line-height:1.65;box-shadow:0 10px 30px #00000088';
+  bar.innerHTML = '安装为 App：点底部 <b style="color:#8fb0f5">分享 ⤴</b> → <b style="color:#8fb0f5">添加到主屏幕</b>，即可全屏使用、断网也能打开。';
+  var x = document.createElement('button');
+  x.textContent = '✕';
+  x.style.cssText = 'position:absolute;top:8px;right:8px;width:26px;height:26px;padding:0;margin:0;'
+    + 'background:transparent;border:1px solid #2c3543;border-radius:6px;color:#8b94a3;font-size:12px';
+  x.onclick = function () {
+    bar.remove();
+    try { localStorage.setItem('ios_install_tip_closed', '1'); } catch (e) {}
+  };
+  bar.appendChild(x);
+  document.body.appendChild(bar);
+})();
 </script>
 </body>
 </html>
