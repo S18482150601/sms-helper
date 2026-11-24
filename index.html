@@ -3,54 +3,83 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<meta name="theme-color" content="#2563eb">
+<meta name="theme-color" content="#0b0d12">
 <title>表格短信助手-无间隔极速自动版</title>
 <!-- 表格解析库：主 CDN，失败自动回退备用 CDN -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
         onerror="this.onerror=null;document.write('<script src=&quot;https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js&quot;><\/script>');"></script>
 <style>
+:root{
+  --bg:#0b0d12; --surface:#14181f; --surface-2:#0f1319; --line:#232a35;
+  --text:#e7eaf0; --muted:#8b94a3; --muted-2:#6b7484;
+  --accent:#3d6fe0; --accent-soft:#1a2338; --ok:#1f7a4d; --warn:#c08a2e; --err:#b4434d;
+}
 *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
 html{-webkit-text-size-adjust:100%}
-body{padding:15px;background:#f5f7fa;color:#222;line-height:1.5}
-.card{background:#fff;border-radius:12px;padding:16px;margin-bottom:15px;box-shadow:0 1px 4px #00000012}
-h3{margin-bottom:10px;color:#222;font-size:17px}
-input,textarea,select{width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin:8px 0;font-size:16px;background:#fff;color:#222}
-textarea{resize:vertical;line-height:1.5}
-button{padding:12px;border:none;border-radius:8px;background:#2563eb;color:#fff;font-size:16px;margin:5px 0;width:100%;cursor:pointer;transition:opacity .15s}
-button:active{opacity:.82}
-button.gray{background:#888}
-button.green{background:#16a34a}
-button.red{background:#dc2626}
-button:disabled{background:#c7cbd1;cursor:not-allowed}
-#tableBox{max-height:260px;overflow:auto;border:1px solid #eee;margin:10px 0;border-radius:8px;-webkit-overflow-scrolling:touch}
-table{width:100%;border-collapse:collapse;font-size:14px;white-space:nowrap}
-td,th{border:1px solid #eee;padding:6px;text-align:center}
-thead th{position:sticky;top:0;background:#f0f4ff;z-index:1}
-.desc{color:#666;font-size:14px;margin:8px 0;line-height:1.5}
+body{padding:16px;background:var(--bg);color:var(--text);line-height:1.55;font-size:15px;
+  background-image:radial-gradient(120% 60% at 50% -10%,#151b26 0%,#0b0d12 60%)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 16px;margin-bottom:14px}
+h3{margin-bottom:12px;color:var(--text);font-size:15px;font-weight:600;letter-spacing:.02em;
+  display:flex;align-items:center;gap:8px}
+h3::before{content:"";width:2px;height:14px;background:var(--accent);border-radius:2px;flex:none}
+input,textarea,select{width:100%;padding:11px;border:1px solid var(--line);border-radius:8px;margin:8px 0;
+  font-size:16px;background:var(--surface-2);color:var(--text);outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,textarea:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px #3d6fe022}
+textarea{resize:vertical;line-height:1.6}
+select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,#8b94a3 50%),linear-gradient(135deg,#8b94a3 50%,transparent 50%);
+  background-position:calc(100% - 16px) 55%,calc(100% - 11px) 55%;background-size:5px 5px,5px 5px;background-repeat:no-repeat;padding-right:32px}
+button{padding:11px;border:1px solid transparent;border-radius:8px;background:var(--accent);color:#fff;
+  font-size:15px;font-weight:500;margin:5px 0;width:100%;cursor:pointer;transition:filter .15s,background .15s}
+button:active{filter:brightness(.92)}
+button.gray{background:transparent;border-color:#2c3543;color:#c3cbd8}
+button.green{background:var(--ok)}
+button.red{background:transparent;border-color:#4a2a2e;color:#d2858c}
+button:disabled{background:#1c222c;border-color:#242c38;color:#5c6575;cursor:not-allowed;filter:none}
+#tableBox{max-height:260px;overflow:auto;border:1px solid var(--line);margin:10px 0;border-radius:8px;
+  -webkit-overflow-scrolling:touch;background:var(--surface-2)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;white-space:nowrap;color:#ccd4e0}
+td,th{border-bottom:1px solid #1e2530;padding:8px 6px;text-align:center}
+thead th{position:sticky;top:0;background:#1a2029;color:#93a0b4;font-weight:500;z-index:1;border-bottom:1px solid var(--line)}
+tbody tr:nth-child(even){background:#111620}
+.desc{color:var(--muted);font-size:13.5px;margin:8px 0;line-height:1.65}
+.desc b{color:#b9c3d2;font-weight:600}
 .check-cell{width:40px}
-.danger{background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;margin:10px 0;font-weight:bold;font-size:14px;line-height:1.6}
-.mini-danger{color:#dc2626;font-size:13px;margin:4px 0 8px}
+.danger{background:#1e1518;border:1px solid #40272c;color:#d9a3a8;padding:12px 13px;border-radius:8px;
+  margin:10px 0;font-size:13px;line-height:1.7}
+.danger b{color:#eac0c4}
+.mini-danger{color:var(--muted);font-size:12.5px;margin:6px 0 8px;line-height:1.7}
 .btn-row{display:flex;gap:8px}
 .btn-row button{margin:5px 0}
-.progress-line{font-size:15px;margin:6px 0}
-#currentPhoneInfo{margin:6px 0;font-size:15px;color:#111;word-break:break-all;min-height:22px}
-.opt-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px;color:#333;cursor:pointer;user-select:none}
-.opt-row input{width:auto;margin:0;accent-color:#2563eb}
-.tip{font-size:13px;color:#16a34a;margin:6px 0;word-break:break-all}
-.tip.err{color:#dc2626}
-.badge{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:2px 8px;font-size:12px;margin-left:6px}
-.inapp-tip{display:none;background:#fff7ed;color:#9a3412;border:1px solid #fdba74;border-radius:10px;padding:12px;margin-bottom:15px;font-size:14px;font-weight:bold;line-height:1.6}
+.progress-line{font-size:14px;margin:10px 0 4px;color:var(--muted);display:flex;align-items:center;gap:8px}
+.progress-line #progress{color:#fff;font-weight:600;font-variant-numeric:tabular-nums}
+#currentPhoneInfo{margin:6px 0;font-size:14px;color:#b9c3d2;word-break:break-all;min-height:20px;font-variant-numeric:tabular-nums}
+.opt-row{display:flex;align-items:center;gap:8px;margin:8px 0;font-size:14px;color:#b9c3d2;cursor:pointer;user-select:none}
+.opt-row input{width:auto;margin:0;accent-color:var(--accent)}
+.tip{font-size:13px;color:#7fbf9f;margin:6px 0;word-break:break-all}
+.tip.err{color:#e08a92}
+.badge{display:inline-block;background:var(--accent-soft);color:#8fb0f5;border:1px solid #2a3a5c;
+  border-radius:999px;padding:2px 9px;font-size:11.5px;margin-left:6px;letter-spacing:.02em}
+.inapp-tip{display:none;background:#231a12;color:#e0b07a;border:1px solid #4a3520;border-radius:10px;
+  padding:12px;margin-bottom:14px;font-size:13.5px;line-height:1.65}
+input[type=file]{padding:9px;font-size:13.5px;color:var(--muted)}
+input[type=file]::file-selector-button{background:#1d2532;color:#c3cbd8;border:1px solid #2c3543;
+  border-radius:6px;padding:7px 12px;margin-right:10px;font-size:13.5px}
+input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;vertical-align:-2px}
+#tableBox::-webkit-scrollbar{width:6px;height:6px}
+#tableBox::-webkit-scrollbar-thumb{background:#2b3442;border-radius:3px}
+#tableBox::-webkit-scrollbar-track{background:transparent}
 </style>
 </head>
 <body>
 
 <div id="inappTip" class="inapp-tip"></div>
 
-<div class="card" style="padding:12px 16px;background:linear-gradient(135deg,#1e3c72 0%,#2a5298 100%)">
-  <div style="display:flex;justify-content:space-between;align-items:center;color:#fff">
-    <span style="font-weight:600;font-size:16px">表格短信助手</span>
-    <a href="contacts.html" style="color:#fff;text-decoration:none;background:rgba(255,255,255,.2);padding:6px 12px;border-radius:20px;font-size:14px">客户联系表 →</a>
+<div class="card" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;background:#12161d">
+  <div style="display:flex;align-items:center;gap:10px">
+    <span style="width:26px;height:26px;border-radius:7px;background:#1b2434;border:1px solid #2a3a5c;display:flex;align-items:center;justify-content:center;color:#8fb0f5;font-size:13px;font-weight:600">S</span>
+    <span style="font-weight:600;font-size:15px;letter-spacing:.02em">表格短信助手<span style="color:#5c6575;font-weight:400;font-size:12px;margin-left:8px">Console</span></span>
   </div>
+  <a href="contacts.html" style="color:#a9b6c9;text-decoration:none;border:1px solid #2c3543;padding:6px 11px;border-radius:7px;font-size:13px">客户联系表 →</a>
 </div>
 
 <div class="card">
