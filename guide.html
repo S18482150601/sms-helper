@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<title>操作指引 · 短信助手</title>
+<style>
+  :root{
+    --bg:#0b0d12; --surface:#14181f; --surface-2:#0f1319; --line:#232a35;
+    --text:#e7eaf0; --muted:#8b94a3; --muted-2:#6b7484;
+    --accent:#3d6fe0; --accent-soft:#1a2338; --ok:#1f7a4d; --warn:#c08a2e; --err:#b4434d;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;-webkit-tap-highlight-color:transparent}
+  body{padding:16px;padding-top:calc(16px + env(safe-area-inset-top));padding-bottom:calc(28px + env(safe-area-inset-bottom));
+    background:var(--bg);color:var(--text);line-height:1.6;font-size:15px;
+    background-image:radial-gradient(900px 380px at 50% -10%,#16203010,transparent 70%)}
+  .wrap{max-width:820px;margin:0 auto}
+  header{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+  .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(140deg,#3d6fe0,#2a4f9e);
+    display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex:none}
+  h1{font-size:16px;font-weight:600;letter-spacing:.02em}
+  .sub{color:var(--muted);font-size:13px;margin-left:36px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 16px;margin-bottom:14px}
+  h2{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin-bottom:12px;letter-spacing:.02em}
+  h2::before{content:"";width:2px;height:14px;background:var(--accent);border-radius:2px;flex:none}
+  h3{font-size:14px;font-weight:600;color:#c8d2e0;margin:16px 0 8px}
+  p{color:var(--muted);font-size:13.5px;margin:8px 0;line-height:1.7}
+  b,strong{color:#dfe6f0;font-weight:600}
+  ol,ul{margin:8px 0 8px 20px;color:var(--muted);font-size:13.5px;line-height:1.75}
+  li{margin:5px 0}
+  li b{color:#dfe6f0}
+  code{background:var(--surface-2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:#9ec1ff}
+  pre{background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:12px;
+    overflow-x:auto;margin:10px 0;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+    line-height:1.65;color:#a9b8cd}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:13px}
+  th{background:#1a2029;color:#93a0b4;font-weight:500;text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}
+  td{padding:9px 10px;border-bottom:1px solid #1b212b;color:var(--muted);vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  td b{color:#dfe6f0}
+  .step{display:flex;gap:11px;margin:11px 0}
+  .num{width:22px;height:22px;border-radius:6px;background:var(--accent-soft);border:1px solid #2a3a5c;
+    color:#8fb0f5;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none;margin-top:2px}
+  .step>div{flex:1}
+  .step p{margin:2px 0}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0;font-size:12.5px}
+  .box{background:var(--surface-2);border:1px solid var(--line);border-radius:7px;padding:8px 11px;color:#b7c2d4}
+  .box.blue{border-color:#2a3a5c;background:var(--accent-soft);color:#9ec1ff}
+  .arrow{color:var(--muted-2)}
+  .tip{border:1px solid #2a3a5c;background:var(--accent-soft);border-radius:8px;padding:11px 13px;margin:11px 0;
+    color:#a8c0e8;font-size:13px;line-height:1.7}
+  .warn{border:1px solid #4a3a1d;background:#1e1a10;border-radius:8px;padding:11px 13px;margin:11px 0;
+    color:#d3b072;font-size:13px;line-height:1.7}
+  .danger{border:1px solid #4a2429;background:#1c1114;border-radius:8px;padding:11px 13px;margin:11px 0;
+    color:#d99099;font-size:13px;line-height:1.7}
+  .badge{display:inline-block;background:var(--accent-soft);color:#8fb0f5;border:1px solid #2a3a5c;
+    border-radius:5px;padding:1px 7px;font-size:11.5px;margin-right:5px}
+  .badge.ok{background:#10241a;border-color:#1f7a4d;color:#5fc48f}
+  .badge.warnb{background:#221c10;border-color:#4a3a1d;color:#c9a45e}
+  a{color:#8fb0f5;text-decoration:none;border-bottom:1px solid #2a3a5c}
+  footer{text-align:center;color:var(--muted-2);font-size:12px;margin-top:18px;line-height:1.8}
+  @media print{
+    body{background:#fff;color:#111;padding:0}
+    .card,header{border-color:#ddd;background:#fff;page-break-inside:avoid}
+    h2::before{background:#3d6fe0}
+    p,ol,ul,li,td{color:#333}
+    pre,.box{background:#f6f7f9;color:#333}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand"><div class="logo">S</div><h1>短信助手 · 操作指引</h1></div>
+    <div class="sub">电脑端负责发，手机端负责操作 · 同一 Wi-Fi 即可</div>
+  </header>
+
+  <!-- 架构 -->
+  <div class="card">
+    <h2>先看懂这张图</h2>
+    <div class="flow">
+      <span class="box">手机浏览器 / 桌面 App</span><span class="arrow">→</span>
+      <span class="box">同一个 Wi-Fi</span><span class="arrow">→</span>
+      <span class="box blue">电脑上的服务 :8787</span><span class="arrow">→</span>
+      <span class="box">阿里云 / 腾讯云短信</span>
+    </div>
+    <p>手机不装软件、不填密钥。密钥只存在电脑上，手机只负责选人、点按钮。</p>
+    <p><b>电脑关机或断网，手机就打不开</b>；想 24 小时可用需要放到云服务器。</p>
+  </div>
+
+  <!-- 电脑端 -->
+  <div class="card">
+    <h2>一、电脑端（只做一次）</h2>
+
+    <h3>1. 安装 Node.js</h3>
+    <div class="step"><div class="num">1</div><div>
+      <p>浏览器打开 <a href="https://nodejs.org">nodejs.org</a>，下载 <b>LTS</b> 版（Windows 选 <code>.msi</code>）。</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div>
+      <p>双击安装，一路「下一步」。<b>安装界面里如果出现 Add to PATH 的勾选项，保持勾选</b>。</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div>
+      <p>装完验证：按 <code>Win + R</code> 输入 <code>cmd</code> 回车，输入 <code>node -v</code>，出现 <code>v20.x.x</code> 之类的版本号即成功。</p>
+    </div></div>
+
+    <h3>2. 启动服务</h3>
+    <div class="step"><div class="num">1</div><div>
+      <p>进入 <code>server</code> 文件夹，双击 <b>启动服务.bat</b>。</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div>
+      <p>黑色窗口出现下面内容就成功了，<b>这个窗口不要关</b>（关掉服务就停）：</p>
+      <pre>  短信助手本地服务已启动
+  通道：mock（模拟，不真发）
+  手机打开：   http://192.168.1.8:8787/</pre>
+    </div></div>
+    <div class="step"><div class="num">3</div><div>
+      <p>首次启动如果弹出 <b>Windows 防火墙提示</b>，勾选「专用网络」并点 <b>允许访问</b>。否则手机连不上。</p>
+    </div></div>
+    <div class="tip">窗口里那个 <code>http://192.168.x.x:8787/</code> 就是手机要打开的地址，先记下来。换了 Wi-Fi 或重启路由器，IP 可能变，重新看窗口即可。</div>
+
+    <h3>3. 填真实短信通道（要真发才需要）</h3>
+    <p>首次启动会在 <code>server</code> 目录生成 <code>config.json</code>（或从 <code>config.example.json</code> 复制）。用记事本打开，改 <code>provider</code> 和对应段：</p>
+    <table>
+      <tr><th style="width:88px">通道</th><th>必填配置</th></tr>
+      <tr><td><b>mock</b></td><td>默认值，只走流程、<b>不会真发短信</b>。用来熟悉界面。</td></tr>
+      <tr><td><b>aliyun</b></td><td><code>accessKeyId</code>、<code>accessKeySecret</code>、<code>signName</code>（签名）、<code>templateCode</code>（模板 CODE，如 SMS_123456）</td></tr>
+      <tr><td><b>tencent</b></td><td><code>secretId</code>、<code>secretKey</code>、<code>sdkAppId</code>、<code>signName</code>、<code>templateId</code></td></tr>
+      <tr><td><b>custom</b></td><td>任意 HTTP 网关：<code>url</code>、请求头、<code>body</code> 模板、成功判定字段</td></tr>
+    </table>
+    <pre>{
+  "port": 8787,
+  "provider": "mock",
+  "aliyun": {
+    "accessKeyId": "你的KeyId",
+    "accessKeySecret": "你的KeySecret",
+    "signName": "已审核的签名",
+    "templateCode": "SMS_123456789"
+  }
+}</pre>
+    <div class="warn"><b>改完必须重启服务</b>：关掉黑窗口，重新双击 <b>启动服务.bat</b>。签名和模板必须是在阿里云/腾讯云<b>审核通过</b>的，否则平台直接拒发。</div>
+
+    <h3>4. 电脑端常见报错</h3>
+    <table>
+      <tr><th style="width:150px">现象</th><th>处理</th></tr>
+      <tr><td><code>'node' 不是内部或外部命令</code></td><td>安装时没勾 PATH。重装 Node.js，或关掉窗口重新启动 <b>启动服务.bat</b>。</td></tr>
+      <tr><td><code>EADDRINUSE</code></td><td>8787 端口被占用。把 <code>config.json</code> 里 <code>"port"</code> 改成 <code>8788</code>，重启，手机地址同步改。</td></tr>
+      <tr><td>窗口一闪就消失</td><td>Node 没装好。先在 cmd 里跑 <code>node -v</code> 确认。</td></tr>
+      <tr><td>关掉窗口后手机打不开</td><td>正常。服务必须保持运行，可最小化但别关。</td></tr>
+    </table>
+  </div>
+
+  <!-- 手机端 -->
+  <div class="card">
+    <h2>二、手机端（每次使用）</h2>
+
+    <h3>1. 打开页面</h3>
+    <div class="step"><div class="num">1</div><div>
+      <p>手机连上<b>和电脑同一个 Wi-Fi</b>（不能用流量，不能连访客网络）。</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div>
+      <p>浏览器输入电脑窗口里那个地址，如 <code>http://192.168.1.8:8787</code>。</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div>
+      <p>打开后页面顶部应显示「已连接」类提示。若打不开，先看第 4 节排查。</p>
+    </div></div>
+
+    <h3>2. 不用安装 App</h3>
+    <p>直接在浏览器打开页面即可，也可以把地址加入书签。本工具不需要安装任何 App 或客户端。</p>
+
+    <h3>3. 导入联系人</h3>
+    <div class="step"><div class="num">1</div><div>
+      <p>点「选择文件」，选 Excel（<code>.xlsx</code>）或 CSV。企查查、天眼查导出的原始表格<b>直接传</b>，不用改表头。</p>
+    </div></div>
+    <div class="step"><div class="num">2</div><div>
+      <p>系统自动识别：<b>姓名</b>、<b>手机号</b>、<b>公司/备注</b>。表头写「电话」「联系人」「企业名称」也能认，无表头也能认。</p>
+    </div></div>
+    <div class="step"><div class="num">3</div><div>
+      <p>看「姓名列」下拉框括号里显示的列名，确认取对了；不对就手动选一列。</p>
+    </div></div>
+    <div class="step"><div class="num">4</div><div>
+      <p>上传后会显示<b>预览</b>：发给第一条的完整内容，<code>{姓名}</code> 有没有替换一眼可见。</p>
+    </div></div>
+
+    <h3>4. 写模板</h3>
+    <table>
+      <tr><th style="width:110px">占位符</th><th>替换成</th></tr>
+      <tr><td><code>{姓名}</code></td><td>联系人姓名（也支持 <code>{名字}</code> <code>{法人}</code> <code>{客户}</code>）</td></tr>
+      <tr><td><code>{公司}</code></td><td>公司 / 备注列</td></tr>
+      <tr><td><code>{电话}</code></td><td>手机号</td></tr>
+    </table>
+    <p>全角 <code>｛姓名｝</code>、带空格 <code>{ 姓名 }</code> 都能识别。</p>
+
+    <h3>5. 批量发送（单次最多 1000 条）</h3>
+    <div class="step"><div class="num">1</div><div><p>第 4 张卡填<b>接口地址</b>（通常已自动填好，就是当前网址），点 <b>检查通道</b>。</p></div></div>
+    <div class="step"><div class="num">2</div><div><p>显示「已连接：阿里云」或「模拟」即正常；显示「连不上服务」见第 4 节。</p></div></div>
+    <div class="step"><div class="num">3</div><div><p>填<b>模板 CODE</b>（如 <code>SMS_123456789</code>）和<b>变量名</b>（默认 <code>name</code>，必须与平台模板里的变量一致）。</p></div></div>
+    <div class="step"><div class="num">4</div><div><p>表格里勾选联系人（可全选），点 <b>一键批量发送</b>。进度条实时显示「已发送 / 总数 / 失败数」。</p></div></div>
+    <div class="step"><div class="num">5</div><div><p>完成后点 <b>导出通道发送结果</b>，得到 CSV：每个号码的成功/失败与失败原因。</p></div></div>
+    <div class="tip">重复号码自动跳过，<code>+86</code> 前缀自动归一化，无效号码标记「号码不合法」不发。单条内容由模板决定，这正是正规通道和群发的区别。</div>
+
+    <h3>6. 其他功能</h3>
+    <ul>
+      <li><b>逐条唤起</b>：免费方式，一条条打开系统短信界面，需手工点发送，适合少量个性化沟通。</li>
+      <li><b>连续拨号</b>：挂断后自动拨下一通，中间有 1.5 秒缓冲，随时可暂停/继续。</li>
+      <li><b>客户联系表</b>：单独页面，管理名单、批量导入、拨号与短信，和主页面数据互通规则见页面提示。</li>
+    </ul>
+  </div>
+
+  <!-- 排查 -->
+  <div class="card">
+    <h2>三、手机连不上怎么排查</h2>
+    <table>
+      <tr><th style="width:170px">现象</th><th>原因与处理</th></tr>
+      <tr><td>一直转圈 / 打不开</td><td>手机和电脑不在同一 Wi-Fi；或电脑黑窗口被关了。确认窗口还在、手机连的是同一路由器。</td></tr>
+      <tr><td>提示「拒绝连接」</td><td>防火墙拦了。控制面板 → Windows Defender 防火墙 → 允许应用通过 → 勾上 Node.js 的专用网络。</td></tr>
+      <tr><td>昨天能用今天不行</td><td>电脑 IP 变了。重新看黑窗口里的地址，用新的。</td></tr>
+      <tr><td>页面能开但「检查通道」失败</td><td>接口地址填错。点一下地址框，应该是 <code>http://电脑IP:8787</code>，不带多余路径。</td></tr>
+      <tr><td>发送全失败，提示签名/模板</td><td>平台侧未通过审核或模板变量不匹配。到服务商控制台核对签名、模板 CODE、变量名。</td></tr>
+      <tr><td>网络正常但仍失败</td><td>公司网络可能禁了手机访问内网。换手机热点给电脑，电脑连热点后重看地址。</td></tr>
+    </table>
+  </div>
+
+  <!-- 合规 -->
+  <div class="card">
+    <h2>四、必须知道的合规红线</h2>
+    <ul>
+      <li>营销短信必须<b>事先获得接收人同意</b>，内容需<b>带退订方式</b>，否则违反《广告法》《通信短信息服务管理规定》。</li>
+      <li>签名与模板需<b>企业实名 + 平台审核</b>，审核通过才能发；贷款、金融类模板审核极严。</li>
+      <li>「银行白名单 / 免审核 / 保证额度」这类表述属<b>虚假宣传</b>，被投诉会被运营商封端口、平台封账号。</li>
+      <li>不受理、不协助任何绕过系统发送限制的做法（网页无法静默群发，这是操作系统安全限制）。</li>
+    </ul>
+    <div class="danger">建议只对<b>已授权客户</b>做回访通知。批量营销一旦被投诉，损失的是你自己的号码和账号。</div>
+  </div>
+
+  <div class="card">
+    <h2>五、一页速查</h2>
+    <p><span class="badge">1</span>电脑双击 <b>启动服务.bat</b> → 记住窗口里的 <code>http://192.168.x.x:8787</code></p>
+    <p><span class="badge">2</span>手机连同一 Wi-Fi → 浏览器打开该地址</p>
+    <p><span class="badge">3</span>上传表格 → 确认姓名列 → 看预览</p>
+    <p><span class="badge">4</span>点 <b>检查通道</b> → 填模板 CODE 与变量名</p>
+    <p><span class="badge">5</span>勾选联系人 → <b>一键批量发送</b> → 导出结果</p>
+    <p style="margin-top:12px"><span class="badge warnb">注意</span>电脑关机 = 手机端不可用；真实发送需先在平台通过签名与模板审核。</p>
+  </div>
+
+  <footer>
+    短信助手 · 操作指引<br>
+    页面地址 /sms-helper/guide.html · 可长按保存或用浏览器「打印」存为 PDF
+  </footer>
+</div>
+</body>
+</html>
