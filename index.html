@@ -119,7 +119,14 @@ input[type=checkbox]{accent-color:var(--accent);width:16px;height:16px;vertical-
 </div>
 
 <div class="card">
-  <h3>4. 短信通道批量发送（可选）</h3>
+  <h3>4. 用手机当发送端（安卓）</h3>
+  <p class="desc">把勾选的号码和短信内容导出成清单，电脑用数据线连安卓手机后运行 <b>phone-sms/send.js</b>，逐条调用手机里的 SIM 卡发送。不需要云平台和密钥，但运营商对单卡有频次限制，<b>每小时建议不超过 20–30 条</b>，超了会被封卡。</p>
+  <button id="exportJobsBtn" class="gray" type="button">导出待发清单（JSON）</button>
+  <p class="mini-danger">没有勾选时导出全部号码；电话、姓名、内容都按当前模板生成好，直接给电脑上的 phone-sms 脚本用。</p>
+</div>
+
+<div class="card">
+  <h3>5. 短信通道批量发送（可选）</h3>
   <p class="desc">网页直连系统短信只能逐条唤起，系统不允许网页静默发送。要「点一次发 1000 条」，需在本机启动配套服务 <b>server/启动服务.bat</b>，由它用你审核通过的签名与模板调用短信平台。密钥只存在电脑上，不经过网页。</p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
     <input id="apiBase" placeholder="接口地址，如 http://192.168.1.8:8787" style="flex:1;min-width:200px;margin:0">
@@ -1143,6 +1150,40 @@ updateSentInfo();
 if (typeof XLSX === 'undefined') {
   setTip('注意：表格组件未加载成功，上传/导出将不可用，请联网后刷新页面', true);
 }
+</script>
+<script>
+/* =========================================================================
+ * 导出待发清单：给手机当发送端（phone-sms/send.js）使用
+ * ========================================================================= */
+(function () {
+  var btn = document.getElementById('exportJobsBtn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    if (!header.length || phoneIdx === -1) { alert('请先上传表格'); return; }
+    /* 有勾选就只导勾选的，没勾选导出全部 */
+    var boxes = Array.prototype.slice.call(document.querySelectorAll('.rowCheck:checked'));
+    var list = boxes.length
+      ? boxes.map(function (cb) { return Number(cb.dataset.idx); })
+      : tableData.map(function (_, i) { return i; });
+    var seen = {}, items = [];
+    list.forEach(function (idx) {
+      var phone = normPhone(phoneOfRow(idx));
+      if (!/^1[3-9]\d{9}$/.test(phone) || seen[phone]) return;
+      seen[phone] = true;
+      var row = tableData[idx] || [];
+      items.push({ phone: phone, name: pickNameCell(row), content: getMsg(row) });
+    });
+    if (!items.length) { alert('没有可导出的有效手机号'); return; }
+    var data = { exportedAt: new Date().toISOString(), total: items.length, items: items };
+    var blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = '待发清单_' + new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  });
+})();
 </script>
 <script>
 /* =========================================================================
